@@ -740,6 +740,7 @@ if __name__ == '__main__':
 
     # test = Test(month_start)
     # test.run()
+    # тест пуша
 
     scheduler = Scheduler(
         month_start,
