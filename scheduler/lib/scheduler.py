@@ -604,7 +604,6 @@ class Scheduler:
         best_bots, avails, _, _ = container.get([0])
         self.save_bot(best_bots[0], avails[0])
 
-
     def save_bot(self, bot, avail):
 
         q = f"""
