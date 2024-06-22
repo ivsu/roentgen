@@ -21,7 +21,7 @@ TODO: что-то сделать с сообщением о входящих п�
 #    warnings.filterwarnings("ignore", category=CryptographyDeprecationWarning)
 
 
-CREDENTIALS = 'assets/credentials_vit.json'
+CREDENTIALS = 'assets/credentials.json'
 
 logger = Logger(__name__)
 

@@ -1,5 +1,6 @@
 import calendar
 from datetime import datetime, timedelta
+from time import perf_counter
 
 
 def get_weekday(dt):
@@ -25,4 +26,18 @@ def get_time_chunck(time_value, percent):
     tds = timedelta(seconds=int(td.seconds * percent))
     return (datetime.min + tds).time()
 
+
+class timer:
+
+    def __init__(self, message: str = 'Время'):
+        self.message = message
+
+    def __enter__(self):
+        self.start = perf_counter()
+        return self
+
+    def __exit__(self, type, value, traceback):
+        self.time = perf_counter() - self.start
+        self.readout = f'{self.message}: {self.time:.3f} с'
+        print(self.readout)
 
