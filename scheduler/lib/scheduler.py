@@ -4,113 +4,120 @@ import gc
 from datetime import datetime, timedelta
 import pandas as pd
 import numpy as np
-from lib.dataloader import get_day_plan, get_schedule, get_month_layout, \
-    generate_doctor_month_schedule, get_weekday, \
-    DOCTOR_COLUMNS, DB_SCHEMA, MODALITIES, SCHEDULE_TYPES
-from lib.db import DB, Transaction, get_all
+import matplotlib.pyplot as plt
+from lib.dataloader import DataLoader, get_weekday, get_month_layout, MODALITIES, SCHEDULE_TYPES
+from lib.db import DB, Transaction
 from lib.timeutils import timer
 from common.logger import Logger
 
 logger = Logger(__name__)
 
 RANDOM_SCHEDULE_TYPE = False
+HOURS = 3600.  # количество секунд в часах (устанавливается в 1 для режима test)
 
 
-def generate_bot(doctors, month_layout, v_avail, mode):
-    columns = ['doctor_id', 'day_index', 'availability', 'modality', 'time_volume']
-
-    # month_start = month_layout['month_start']
-    month_start_weekday = month_layout['month_start_weekday']
-    month_end_weekday = month_layout['month_end_weekday']
-    num_days = month_layout['num_days']
-    schedule_template = month_layout['schedule_template']
-    working_days_matrices = month_layout['working_days_matrices']
-    workday_seconds = [8., 12.] if mode == 'test' else [8. * 3600, 12. * 3600]
-    assert len(doctors) * num_days == v_avail.shape[0] * v_avail.shape[1]
-
-    gen = np.random.default_rng()
-    doctor_data = []
-
-    time_table = []
-    for i, doctor in doctors.iterrows():
-        doctor_id = doctor['id']
-        time_rate = doctor['time_rate']
-        modalities = [doctor['main_modality']] + doctor['modalities']
-
-        schedule_type = gen.choice(SCHEDULE_TYPES) if RANDOM_SCHEDULE_TYPE else doctor['schedule_type']
-        day_norm = time_rate * workday_seconds[np.where(SCHEDULE_TYPES == schedule_type)[0][0]]
-
-        # случайный день начала выходных
-        weekend_start = gen.integers(0, 6, endpoint=True)
-        working_days_matrix = working_days_matrices[schedule_type]
-
-        month_schedule = generate_doctor_month_schedule(
-            schedule_template, schedule_type, time_rate, working_days_matrix, weekend_start
-        )
-        # print(f'month_schedule:\n{month_schedule}')
-        # преобразуем в одномерный вектор
-        month_schedule.shape = (-1,)
-        # оставляем только дни текущего месяца
-        if month_end_weekday < 7:
-            month_schedule = month_schedule[month_start_weekday - 1: -7 + month_end_weekday]
-        else:
-            month_schedule = month_schedule[month_start_weekday - 1:]
-
-        for day_index in range(num_days):
-            # флаг доступности: -1 - недоступен для распределения, 0 - выходной день, 1 - рабочий день
-            try:
-                availability = v_avail[i][day_index]  # iloc[i * num_days + day_index]['availability']
-            except Exception as e:
-                logger.error(f'i: {i}, day_index: {day_index}, {repr(e)}')
-                raise
-            # случайно выбираем модальность из доступных
-            modality = MODALITIES.index(gen.choice(modalities))
-            # зануляем рабочее время в недоступные дни
-            time_volume = 0.
-            if availability != -1:
-                time_volume = timedelta(hours=month_schedule[day_index]).seconds
-            if mode == 'test':
-                time_volume = time_volume / 3600
-            time_table.append([doctor_id, day_index, availability, modality, time_volume])
-
-        # нормальная продолжительность рабочего дня в зависимости от вида графика
-        doctor_data.append([day_norm])
-
-    # print(f'time_table:\n{time_table[:10]}')
-
-    return pd.DataFrame(time_table, columns=columns), doctor_data
+def plot(x, y_dict, title):
+    for key in y_dict.keys():
+        y = y_dict[key]
+        plt.plot(x, y)
+    plt.title(title)
+    plt.legend(y_dict.keys())
+    plt.show()
 
 
 class Container:
     """Класс для согласованного хранения расписаний и связанных данных"""
 
     def __init__(self):
-        self.bots = None
-        # self.avails = None
-        self.doctors = None
-        self.scores = None
+        self.bots = np.array([])
+        self.bots_data = np.array([])
+        self.scores = np.array([])
+        self.generation = None
 
-    def keep(self, bots, doctors):
-        self.bots = bots
-        # self.avails = avails
-        self.doctors = doctors
+    def append(self, bots, bots_data=None, source=None, start_id=0, generation=None):
+        self.bots = np.vstack([self.bots, bots]) if self.bots.size else bots
+        if generation is not None:
+            self.generation = generation
+        if bots_data is None:
+            ids = self._get_ids(bots.shape[0], start_id)
+            bots_data = np.array([{'id': bot_id, 'source': source} for bot_id in ids])
+
+        self.bots_data = np.hstack([self.bots_data, bots_data]) if self.bots.size else bots_data
+
+    def insert(self, bots, bots_data=None, scores=None, index=None, source=None, start_id=0, generation=None):
+
+        if generation is not None:
+            self.generation = generation
+
+        if index is None:
+            index = len(self.bots)
+        assert index <= len(self.bots), f'Переданный индекс превышает количество имеющихся ботов: {index} / {len(self.bots)}'
+
+        n_exists = len(self.bots)
+
+        self.bots = np.vstack([self.bots[:index], bots, self.bots[index:]]) \
+            if n_exists > 0 else bots
+
+        if bots_data is None:
+            ids = self._get_ids(bots.shape[0], start_id)
+            bots_data = np.array([{'id': bot_id, 'source': source} for bot_id in ids])
+
+        self.bots_data = np.hstack([self.bots_data[:index], bots_data, self.bots_data[index:]]) \
+            if n_exists > 0 else bots_data
+
+        if scores is not None:
+            assert len(self.scores) == n_exists, \
+                f'Не заданы оценки для уже имеющихся ботов: {len(self.scores)} / {n_exists}'
+            self.scores = np.hstack([self.scores[:index], scores, self.scores[index:]]) \
+                if n_exists > 0 else scores
+
+    def _get_ids(self, range_len, start_id=0):
+        assert self.generation is not None
+        id_range = range(start_id, start_id + range_len)
+        return [f'{self.generation:04d}/{i:03d}' for i in id_range]
 
     def unpack(self, copy=False):
         if copy:
-            return self.bots.copy(), self.doctors.copy(), self.scores.copy()
+            return self.bots.copy(), self.bots_data.copy(), self.scores.copy()
         else:
-            return self.bots, self.doctors, self.scores
+            return self.bots, self.bots_data, self.scores
 
-    def unpack_best(self, num, copy=False):
+    def unpack_best(self, num=None, copy=False):
+
+        if num is None:
+            num = len(self.scores)
 
         # получаем индексы лучших ботов, отсортированные в порядке убывания оценки
         best_indices = np.argpartition(self.scores, -num)[-num:]
         index = np.flip(best_indices[np.argsort(self.scores[best_indices])])
 
         if copy:
-            return self.bots[index].copy(), self.doctors[index].copy(), self.scores[index].copy()
+            return self.bots[index].copy(), self.bots_data[index].copy(), self.scores[index].copy()
         else:
-            return self.bots[index], self.doctors[index], self.scores[index]
+            return self.bots[index], self.bots_data[index], self.scores[index]
+
+    def get_extended_data(self):
+        assert len(self.scores) == len(self.bots_data)
+
+        _, bots_data, scores = self.unpack_best()
+
+        return np.array([{
+            'id': bots_data[i]["id"],
+            'source': bots_data[i]["source"],
+            'score': scores[i]
+        } for i in range(len(bots_data))])
+
+    def extract(self, amount):
+        bots = self.bots[-amount:].copy()
+        bots_data = self.bots_data[-amount:].copy()
+        self.bots, self.bots_data = self.bots[:-amount], self.bots_data[:-amount]
+
+        if self.scores.size == 0:
+            scores = self.scores.copy()
+        else:
+            scores = self.scores[-amount:].copy()
+            self.scores = self.scores[:-amount]
+        return bots, bots_data, scores
 
     def get_scores(self):
         return self.scores
@@ -118,24 +125,20 @@ class Container:
     def set_scores(self, scores):
         self.scores = scores
 
-    def append(self, bots, doctors):
-        self.bots = np.vstack([self.bots, bots])
-        # self.avails = np.vstack([self.avails, avails])
-        self.doctors = np.vstack([self.doctors, doctors])
-
-    def print_shapes(self):
-        logger.info(f'bots: {self.bots.shape}')
-        # print(f'avails: {self.avails.shape}')
-        logger.info(f'doctors: {self.doctors.shape}')
+    def print(self, mode=None):
+        logger.info(f'bots shape: {self.bots.shape}')
+        logger.info(f'bots_data shape: {self.bots_data.shape}')
+        if mode == 'test':
+            logger.info(f'bots:\n{self.bots}')
 
 
 class Scheduler:
     """
     Класс представляет популяцию расписания работы врачей на месяц.
-    Основной объект v_bot - матрица: (bot_id, doctor_id, day_index, modality) = time_volume
-    Вектор весов модальностей v_mod - main_modality: (bot_id, doctor_id, modality) = 1.0 / 0.8 / 0.0
-    Вектор доступности v_base_avail - (bot_id, doctor_id, day_index) = -1, 0, 1
-    Вектор врачей v_doctor - (bot_id, doctor_id, props) = any
+    Основной объект v_bot: [bot_id, doctor_id, modality, day_index] = time_volume
+    Вектор модальностей v_mod: [1, doctor_id, modality, 1] = 0, 1, 2 (основная)
+    Вектор доступности по базовому графику v_base_avail: [1, doctor_id, 1, day_index] = -1, 0, 1
+    Вектор врачей v_doctor: [1, doctor_id, 1, props] = any (нормальная продолжительность рабочего дня, ...)
     """
 
     def __init__(self, month_start, plan_version, n_generations, population_size, n_survived, mode):
@@ -145,61 +148,61 @@ class Scheduler:
         self.n_survived = n_survived
         self.mode = mode
         self.n_mods = len(MODALITIES)
+        self.db_schema = 'test' if mode == 'test' else 'roentgen'
+        self.dataloader = DataLoader(self.db_schema)
 
         # получаем таблицу врачей
-        db = DB()
-        q = (f"SELECT id, {', '.join(DOCTOR_COLUMNS)}"
-             f" FROM {DB_SCHEMA}.doctor"
-             f" WHERE is_active"
-             f" ORDER BY id"
-             )
-        with db.get_cursor() as cursor:
-            cursor.execute(q)
-            doctors: pd.DataFrame = get_all(cursor)
-        self.doctors = doctors
+        doctor_df = self.dataloader.get_doctors()
+        doctor_df['schedule_type_index'] = doctor_df['schedule_type'].apply(lambda s: SCHEDULE_TYPES.index(s))
+        self.doctor_df = doctor_df
+        self.n_doctors = len(doctor_df)
+        # self.v_doctor = doctor_df['schedule_type']
+        self.time_rate = doctor_df['time_rate'].to_numpy(dtype=np.float32, copy=True)\
+            [np.newaxis, :, np.newaxis, np.newaxis]
 
-        base_schedule = get_schedule('base', month_start, data_layer='day')
-        self.v_base_avail = base_schedule.pivot(index=['doctor_id'], columns=['day_index'], values=['availability'])
-        self.v_base_avail = self.v_base_avail.to_numpy(dtype=np.int32, copy=True)
-
-        # создание вектора весов модальностей врачей: (num_doctors, self.n_mods)
-        mod_np = np.array(MODALITIES[:self.n_mods])
-        mod_template = np.zeros((self.n_mods,), dtype=np.int32)
-        mod_list = []
-
-        def set_mod(row):
-            mod = mod_template.copy()
-            if len(row['modalities']) > 0:
-                _, indices, _ = np.intersect1d(mod_np, row['modalities'], return_indices=True)
-                mod[indices] = 1
-            main_mod = np.where(mod_np == row['main_modality'])
-            mod[main_mod] = 2
-            mod_list.append(mod)
-
-        doctors.apply(set_mod, axis=1)
-        v_mod = np.array(mod_list)[np.newaxis, :, :, np.newaxis]
-        # print(v_mod[:5])
-        self.v_mod = v_mod
-        self.v_bot = None
-        self.v_doctor = None
+        # получаем вектор весов модальностей врачей: [1, num_doctors, self.n_mods, 1]
+        self.v_mod = self._get_doctors_mods()
 
         self.month_layout = get_month_layout(month_start)
+
         # считываем план на текущий месяц по дням, врачам и модальностям (в секундах)
-        day_plan_df = get_day_plan(plan_version, month_start, with_ce=False)
+        day_plan_df = self.dataloader.get_day_plan(plan_version, month_start, with_ce=False)
         # print(day_plan_df.iloc[0])
         day_plan_df = day_plan_df[day_plan_df['month'] == month_start.month]
         row_index = {mod: i for i, mod in enumerate(MODALITIES)}
         day_plan_df = day_plan_df.pivot(
-            columns=['day_index'], index=['modality'], values=['time_volume']
+            index=['modality'], columns=['day_index'], values=['time_volume']
         ).rename(index=row_index)
         day_plan_df.sort_index(inplace=True)
         # print(day_plan_df.head(7))
-        self.v_plan = np.expand_dims(day_plan_df.to_numpy(copy=True, dtype=np.float32),
-                                     axis=(0, 1)) * 3600
+        self.v_plan = day_plan_df.to_numpy(copy=True, dtype=np.float32)[np.newaxis, np.newaxis, :, :]
+        self.v_plan *= HOURS
+        self.n_days = self.v_plan.shape[3]
         # print(f'v_plan:\n{self.v_plan[0, 0, :, :5]}')
+
+        # получаем желаемый график работы (базовое расписание)
+        base_schedule = self.dataloader.get_schedule('base', month_start, data_layer='day')
+        self.v_base_avail = base_schedule \
+            .pivot(index=['doctor_id'], columns=['day_index'], values=['availability']) \
+            .to_numpy(dtype=np.int32, copy=True)[np.newaxis, :, np.newaxis, :]
+        # обрезаем до количества дней в плане (актуально для режима test)
+        self.v_base_avail = self.v_base_avail[..., :self.n_days]
+
+        # вектора для генерации расписаний с разным видом графика
+        def gen_workday_matrix(template, repeats):
+            wdm = []
+            wdm_source = np.tile(np.array(template, dtype=np.int32), repeats)
+            for day in (range(len(template))):
+                wdm.append(wdm_source[day:day + self.n_days])
+            return np.array(wdm, dtype=np.int32)
+
+        self.wd52 = gen_workday_matrix([0, 0, 1, 1, 1, 1, 1], 6)
+        self.wd22 = gen_workday_matrix([0, 0, 1, 1], 9)
 
         self.gen = np.random.default_rng()
 
+        # вектор популяции ботов
+        self.v_bot = None
         # вектор рейтингов всех генов в текущей популяции
         self.v_score = None
         # итоговая оценка каждого бота
@@ -208,76 +211,88 @@ class Scheduler:
         self.total_score = None
         self.best_bots = None
 
-    def initialize(self, n_bots):
-        if n_bots == 0:
-            raise RuntimeError('Получено нулевое количество ботов для инициализации.')
+    def populate(self, n_bots, mod_weights=None, v_used=None):
+        # self.doctor_df, self.month_layout, self.v_base_avail, self.mode
+        # -> container: v_bot
+        np.set_printoptions(formatter=dict(float=lambda x: f'{x:7.1f}'))
+        # print(f'n_bots: {n_bots}')
+        # print(f'n_doctors: {self.n_doctors}')
 
-        np.set_printoptions(formatter=dict(float=lambda x: f'{x:.0f}'))
-        bot_list = []
-        v_doctor = None
-        for bot_index in range(n_bots):
-            # выход: [doctor_id, day_index, availability, modality, time_volume]
-            src_df, doctor_data = generate_bot(self.doctors, self.month_layout, self.v_base_avail, self.mode)
-            # src_df['time_volume'] = src_df['time_volume'].apply(lambda s: s.seconds)
-            # print(f'src_df:\n{src_df.head(10)}')
-            # print(src_df.iloc[0])
-            doctor_np = np.array(doctor_data)[np.newaxis, :]
-            v_doctor = doctor_np if v_doctor is None else np.vstack([v_doctor, doctor_np])
+        work_days = np.zeros((n_bots, self.n_doctors, self.n_days), dtype=np.float32)
 
-            base_df = src_df.pivot(columns=['day_index'], index=['doctor_id'], values=['time_volume'])
-            # print(f'base_df:\n{base_df.head()}')
-            bot = base_df.to_numpy(copy=True, dtype=np.float32)
-            # раскрываем расписание врача по модальностям: (num_doctors, self.n_mods, num_days)
-            bot = np.repeat(bot[:, np.newaxis, :], self.n_mods, axis=1)
-            # print(f'bot: {bot.shape}')
-            # print(f'bot:\n{bot[:2, 0, :]}')
+        schedule_type_index = self.doctor_df['schedule_type_index'].to_numpy(dtype=np.int32)
+        # print(f'schedule_type_index: {schedule_type_index.shape}')
 
-            # создаём маску для зануления незадействованных модальностей
-            # (модальности заданы на все дни - рабочие, нерабочие)
-            mod_df = src_df.pivot(columns=['day_index'], index=['doctor_id'], values=['modality'])
-            mod_index = mod_df.to_numpy(dtype=np.int32)
-            # print('mod_index:', mod_index.shape)
-            # print(f'mod_index:\n{mod_index[:2]}')
-            mod_index.shape = (-1,)
-            # print('mod_index:', mod_index.shape)
+        for i, schedule_type in enumerate(SCHEDULE_TYPES):
 
-            mod_mask = np.zeros(bot.shape).reshape((-1, self.n_mods))
-            # print('mod_mask:', mod_mask.shape)
+            # print(f'i: {i}, schedule_type: {schedule_type}')
+            if schedule_type == '5/2':
+                schedule_variance = 7
+                workdate_template = self.wd52
+                time_volume = np.array([8.], dtype=np.float32)
+            elif schedule_type == '2/2':
+                schedule_variance = 4
+                workdate_template = self.wd22
+                time_volume = np.array([12.], dtype=np.float32)
+            else:
+                raise RuntimeError("Неизвестный вид графика:", schedule_type)
 
-            # advanced integer indexing
-            mod_mask[np.arange(mod_mask.shape[0]), mod_index] = 1.
-            mod_mask = mod_mask.reshape((bot.shape[0], bot.shape[2], self.n_mods)).transpose((0, 2, 1))
-            # print('mod_mask:', mod_mask.shape)
-            # print(f'mod_mask:\n{mod_mask[0]}')
+            current_schedule_index = np.argwhere(schedule_type_index == i)[:, 0]
+            # print(f'current_schedule_index: {current_schedule_index.shape}')
 
-            # оставляем рабочее время только на заданной модальности
-            bot *= mod_mask
-            logger.debug(f'bot[{bot_index}] works:\n{bot.sum(axis=1)[:3]}')
-            bot_list.append(bot)
-            # for i in [0, 2]:
-            #     print(f'doctor: {i}')
-            #     for j in range(self.n_mods):
-            #         print(f'mod: {j}')
-            #         print(bot[i, j])
-            # print(f'bot:\n{bot[0:self.n_mods:2]}')
+            index_len = len(current_schedule_index)
+            # формируем случайные индексы расписаний текущего вида графика в workdate_template
+            random_schedule_index = self.gen.integers(
+                0, schedule_variance, size=n_bots * index_len, dtype=np.int32
+            )
+            # print(f'random_schedule_index: {random_schedule_index.shape}')
 
-            # avail_df = src_df.pivot(columns=['day_index'], index=['doctor_id'], values=['availability'])
-            # avail_list.append(avail_df.to_numpy(dtype=np.float32, copy=True))
-            # print(avail_df.head())
+            # заполняем расписания только с текущим видом графика, добавляем рабочее время
+            work_days[:, current_schedule_index, :] = workdate_template[random_schedule_index] \
+                .reshape(n_bots, index_len, self.n_days).astype(np.float32) * time_volume
+            # print(f'work_days sample:\n{work_days[0, :10, :]}')
 
-        container = Container()
-        bots = np.array(bot_list)
+        # print(f'work_days {work_days.shape}')
+        # создаём бота - добавляем ось модальностей
+        v_bot = np.repeat(work_days[:, :, np.newaxis, :], repeats=self.n_mods, axis=2)
+        # получаем вектор индексов случайной модальности
+        v_random_mod_index = self._generate_doctors_mods(v_bot.shape, mod_weights)
+        v_random_mod_index = v_random_mod_index.transpose((0, 1, 3, 2)).reshape((-1,))
+        # print(f'v_random_mod_index: {v_random_mod_index.shape}')
+        # v_bot
+        v_bot_mod_mask = np.zeros(v_bot.shape).reshape((-1, self.n_mods))
+        # print(f'v_bot_mod_mask: {v_bot_mod_mask.shape}')
+
+        # advanced integer indexing
+        v_bot_mod_mask[np.arange(v_bot_mod_mask.shape[0]), v_random_mod_index] = 1.
+        v_bot_mod_mask = v_bot_mod_mask \
+            .reshape((v_bot.shape[0], v_bot.shape[1], v_bot.shape[3], self.n_mods))\
+            .transpose((0, 1, 3, 2))
+        # print(f'v_bot_mod_mask: {v_bot_mod_mask.shape}')
+        # print('mod_mask:', mod_mask.shape)
+        # print(f'mod_mask:\n{mod_mask[0]}')
+
+        # оставляем рабочее время только на заданной модальности
+        v_bot *= v_bot_mod_mask
+        # умножаем на ставку рабочего времени
+        v_bot *= self.time_rate
+        # зануляем рабочее время в недоступные дни
+        mask = self.v_base_avail.repeat(n_bots, axis=0).repeat(self.n_mods, axis=2)
+        v_bot[mask < 0] = 0.
+        # зануляем часть ботов при переизбытке ресурсов
+        if v_used is not None:
+            v_bot *= v_used
+        # переводим в секунды
+        v_bot *= HOURS
+
         # logger.info(f'initial bots schedule by modalities {bots.shape}:\n{bots.sum(axis=(1, 3)) / 3600}')
+        # print(f'v_bot {v_bot.shape}')
+        # print(f'v_bot sample:\n{v_bot[0, :6, :, :10]}')
+        # print(f'v_base_avail sample:\n{self.v_base_avail[0, :6, 0, :10]}')
 
-        # logger.info(f'bots schedule:\n{bots.sum(axis=2)}')
-        container.keep(
-            bots,
-            # self.v_base_avail,
-            v_doctor
-        )
-        return container
+        return v_bot
 
-    def evaluate(self, container: Container):
+    def evaluate(self, container: Container, counter):
         """
         ...
         Работы v_bot занулены в дни недоступности (self.v_base_avail = -1)
@@ -287,29 +302,21 @@ class Scheduler:
         """
 
         # time_pw = -10  # степень функции для оценки нормы рабочего времени в рамках дня
-        fact_over_plan_pw = -1  # степень затухания оценки при превышении факта над планом
+        fact_over_plan_pw = -2  # степень затухания оценки при превышении факта над планом
+        works_plan_pw = -1  # степень затухания оценки соотношения графика работ и плана
         extra_mod_k = 0.98  # снижение оценки за работы не по основной модальности
         conflict_with_base_k = 0.98  # снижение оценки за несовпадение с базовым графиком
 
-        v_bot, v_doctor, _ = container.unpack()
+        v_bot, bots_data, _ = container.unpack()
 
-        np.set_printoptions(formatter=dict(float=lambda x: f'{x:.3f}'))
-
-        # TODO: debug
-        # v_bot[0, 0, 0, 0:5] = 20000.
-        # v_bot[0, 0, 0, 6:8] = 1000.
-        # v_bot[0, 0, 2, 0:5] = 10000.
-        # v_bot[0, 2, 0, 3:5] = 50000.
-        # v_bot[0, 2, 1, 3:5] = 10000.
+        np.set_printoptions(formatter=dict(float=lambda x: f'{x:6.3f}'))
 
         def power_zero_and_norm(value, normal, power):
-            # степенная функция, равная 1 в нуле и в значении нормы времени
+            # степенная функция, равная 1 в нуле и в значении нормы
             return np.power(value / normal * 2 - 1, power)
 
         def power_norm_and_more(value, normal, power):
-            # степенная функция, равная 1 в значении нормы времени и затем затухающая
-            # return np.power(-2. + value / normal, power)
-            # степенная функция, равная 1 в значении нормы времени и затем затухающая
+            # степенная функция, равная 1 в значении нормы и затем затухающая
             # при отрицательной степени
             mask = value > 0
             out = value.copy()
@@ -328,55 +335,22 @@ class Scheduler:
         f_extra_mod = self.v_mod == 1  # 1 - дополнительная модальность, 2 - основная
         f_noworks = np.isclose(v_bot, 0.)
         # маска нерабочих дней в базовом графике
-        f_not_working_days_in_base = self.v_base_avail[np.newaxis, :, np.newaxis, :] < 1
-        f_not_working_days_in_base = f_not_working_days_in_base \
-            .repeat(self.population_size, axis=0) \
-            .repeat(self.n_mods, axis=2)
-        # 0 - норма времени (сек.) согласно виду графика и ставке
-        # f_day_time_norm = v_doctor[:, :, 0, np.newaxis, np.newaxis]
-        # print(f'f_day_time_norm: {f_day_time_norm.shape}')
-        # print(f'f_day_time_norm:\n{f_day_time_norm[0, :3, 0, 0]}')
-
-        v_score = np.zeros(v_bot.shape)
-        logger.debug(f'v_score: {v_score.shape}')
-
-        # *
-        # оценка отдельного рабочего дня врача в рамках модальности:
-        # logger.info(f'v_bot:\n{v_bot}')
-
-        # если работ нет - ставим 1
-        # TODO: возможно, следует занулить
-        # v_score[f_noworks & f_mod] = 0.
+        f_not_working_days_in_base = self.v_base_avail < 1
+        # f_not_working_days_in_base = f_not_working_days_in_base \
+        #     .repeat(self.population_size, axis=0) \
+        #     .repeat(self.n_mods, axis=2)
         # есть работы по своим модальностям
         f_work_frame = ~f_noworks & f_mod
         logger.debug(f'f_work_frame: {f_work_frame.shape}')
 
-        # (!) следующее не нужно, пока мы оперируем только нормативным временем
-        # фильтр работ со временем меньше или равном нормативному
-        # f_in_norm = v_bot <= f_day_time_norm
-        # оценку 1 получают работы по модальности не превышающие нормативное время
-        # TODO: наверное, следует применить power_norm_and_more (это для случая изменения рабочего времени алгоритмом)
-        # v_score[f_work_frame & f_in_norm] = 1.
-        v_score[f_work_frame] = 1.
-        # работы по модальности со временем больше нормативного получают убывающую оценку
-        # v_score[f_work_frame & ~f_in_norm] = power_norm_and_more(
-        #     v_bot, f_day_time_norm, time_pw)[f_work_frame & ~f_in_norm]
+        # v_score = np.zeros(v_bot.shape)
+        # начальная оценка 1. за всё время, на которое назначены работы
+        # v_score[f_work_frame] = 1.
+        # logger.debug(f'v_score: {v_score.shape}')
 
         # немного снижаем оценку за работы по дополнительной модальности
         # logger.info(f'v_score before extra_mod_k:\n{v_score}')
-        v_score[f_work_frame & f_extra_mod] *= extra_mod_k
-
-        # *
-        # добавляем оценку продолжительности рабочего дня (суммируем по модальностям)
-        # работы близкие к нормативному времени получают оценку близкую к 1
-        # работы более нормативного времени - убывающую оценку
-        # work_day_duration = np.sum(self.v_bot, axis=2, keepdims=True)
-
-        # td = 6
-        # print(f':: f_work_frame: {f_work_frame[0, 0, 0, td]}')
-        # print(f':: work_day_duration: {work_day_duration[0, 0, 0, td]}')
-        # print(f':: f_day_time_norm: {f_day_time_norm[0, 0, 0, 0]}')
-        # print(f':: self.v_bot: {self.v_bot[0, 0, 0, td]}')
+        # v_score[f_work_frame & f_extra_mod] *= extra_mod_k
 
         """ код для оценки рабочего дня с суммированием модальностей,
             но выяснилось, что по нескольким модальностям врач не работает в рамках смены
@@ -395,15 +369,15 @@ class Scheduler:
         v_score *= np.where(f_day_frame & ~f_in_norm, result, 1.)
         """
 
-        # снижаем оценку за работы в несовпадающие и исходным графиком дни
+        # снижаем оценку за работы в несовпадающие с исходным графиком дни
         # logger.info(f'v_score before conflict_with_base_k:\n{v_score}')
-        v_score[f_not_working_days_in_base] *= conflict_with_base_k
+        # v_score[f_work_frame & f_not_working_days_in_base] *= conflict_with_base_k
 
         # *
         # добавляем оценку выполнения плана
         # оценка линейно растёт при приближении факта к плану
         # и убывает при перевыполнении
-
+        """
         day_fact = np.sum(v_bot, axis=1, keepdims=True)
         logger.debug(f'day_fact: {day_fact.shape}')
         in_plan = day_fact <= self.v_plan
@@ -416,24 +390,103 @@ class Scheduler:
         # print(f':: power_norm_and_more: {power_norm_and_more(day_fact[0, 0, 0, td], self.v_plan[0, 0, 0, td], fact_over_plan_pw)}')
 
         logger.debug(f'plan_fact_scores: {plan_fact_scores.shape}')
+        # TODO: попробовать заменить на нормальное распределение со средним значением в точке плана
+        #   и при факте = 0, значение должно быть 0.1, например.
         plan_fact_scores[in_plan] = linear_zero_and_norm(day_fact, self.v_plan)[in_plan]
         plan_fact_scores[~in_plan] = power_norm_and_more(
             day_fact, self.v_plan, fact_over_plan_pw
         )[~in_plan]
         # logger.info(f'v_score before plan_fact_scores:\n{v_score}')
         # logger.info(f'plan_fact_scores:\n{plan_fact_scores[:, 0, :, :]}')
-        v_score *= plan_fact_scores
+        # v_score *= plan_fact_scores
+        """
 
-        # итоговая оценка
-        bot_scores = np.sqrt(np.sum(np.power(v_score, 2), axis=(1, 2, 3)))
-        # logger.info(f'power:\n{np.power(v_score, 2)}')
-        # logger.info(f'sum: {np.sum(np.power(v_score, 2), axis=(1, 2, 3))}')
+        #
+        # вариант 2
+        """
+        day_works_by_mod = np.sum(v_bot, axis=1, keepdims=True)  # -> [:, 1, :, :]
+        day_works_total = day_works_by_mod.sum(axis=2, keepdims=True)  # -> [:, 1, 1, :]
+        print(f'\nday_works_by_mod:\n{day_works_by_mod[:, 0, :, :]}')
+        print(f'\nday_works_total:\n{day_works_total[:, 0, 0, :]}')
+        # общее отношение ресурсов к плану - соотношение, к которому должны стремиться все распределения
+        resource_ratio = day_works_total.sum(axis=(1, 2, 3), keepdims=True) / self.v_plan.sum()  # -> [:, 1, 1, 1]
+        print(f'\nresource_ratio: {resource_ratio[:, 0, 0, 0]}')
 
-        # абсолютные отклонения факта от плана
-        diff = - day_fact + self.v_plan
-        atol = 1e-1
-        f_under_plan = diff < -atol
-        f_by_plan = np.isclose(diff, 0., atol=atol)
+        exec_ratio_by_mod = day_works_by_mod / self.v_plan  # -> [:, 1, :, :]
+        exec_ratio_total = day_works_total / self.v_plan.sum(axis=2, keepdims=True)  # -> [:, 1, 1, :]
+        print(f'\nexec_ratio_by_mod:\n{exec_ratio_by_mod[:, 0, :, :]}')
+        print(f'\nexec_ratio_total:\n{exec_ratio_total[:, 0, 0, :]}')
+
+        # расстояние отклонения соотношения факт/план по каждой модальности от этого же соотношения
+        # по всем модальностям в рамках каждого дня -> [:, 1, 1, :]
+        works_plan_distance = np.sqrt(np.sum(np.square(exec_ratio_by_mod - exec_ratio_total), axis=2, keepdims=True))
+        print(f'\nworks_plan_distance:\n{works_plan_distance[:, 0, 0, :]}')
+        works_plan_scores = power_norm_and_more(
+            works_plan_distance + 1., resource_ratio, works_plan_pw
+        )
+        print(f'\nworks_plan_scores:\n{works_plan_scores[:, 0, 0, :]}')
+        v_score *= works_plan_scores
+        print(f'\nv_score:\n{v_score}')
+
+        # итоговая оценка по каждому боту
+        bot_scores = np.sqrt(np.sum(np.square(v_score), axis=(1, 2, 3)))
+        print(f'\nbot_scores: {bot_scores}')
+        """
+
+        #
+        # вариант 3
+        # print(f'evaluate bots_data: {bots_data}')
+
+        # extra_mod_k = 0.9999  # снижение оценки за работы не по основной модальности
+        # conflict_with_base_k = 0.9999  # снижение оценки за несовпадение с базовым графиком
+        max_extra_mod_k = 0.99  # максимальный штраф за работы по неосновной модальности
+        max_base_mismatch_k = 0.99 # максимальный штраф за несовпадение с базовым графиком
+
+        day_works_by_mod = np.sum(v_bot, axis=1, keepdims=True)  # -> [:, 1, :, :]
+        diff = day_works_by_mod - self.v_plan
+        # print(f'diff: {diff.shape}')
+        diff_minus = np.sum(diff, axis=(1, 2, 3), where=(diff < 0))
+        diff_plus = np.sum(diff, axis=(1, 2, 3), where=(diff > 0))
+        counter['diff'].append(np.min(diff_plus - diff_minus) / HOURS)
+
+        # общее количество назначенных работ по дням
+        total_works = np.count_nonzero(v_bot, axis=(1, 2), keepdims=True)
+
+        # рассчитываем штраф за работы по неосновной модальности
+        extra_mod = np.zeros(v_bot.shape, dtype=np.int32)
+        extra_mod[f_work_frame & f_extra_mod] = 1
+        extra_mod = extra_mod.sum(axis=(1, 2), keepdims=True)
+        extra_mod_rate = np.divide(extra_mod, total_works,
+                                   where=(total_works > 0))
+        # print(f'extra_mod_rate:\n{extra_mod_rate}')
+        extra_mod_penalty = max_extra_mod_k + (1 - extra_mod_rate) * (1 - max_extra_mod_k)
+        # print(f'extra_mod_penalty:\n{extra_mod_penalty}')
+        del extra_mod, extra_mod_rate
+        gc.collect()
+
+        # рассчитываем штраф за работы/отдых в несовпадающие с исходным графиком дни
+        doctor_workdays = np.where(v_bot.sum(axis=2, dtype=np.int32, keepdims=True) > 0, True, False)
+        # TODO: уточнить со значением -1
+        bool_avail = np.where(self.v_base_avail == 1, True, False)
+        base_mismatch_rate = np.sum(doctor_workdays ^ bool_avail, axis=1, keepdims=True) / doctor_workdays.shape[1]
+        base_mismatch_penalty = max_base_mismatch_k + (1 - base_mismatch_rate) * (1 - max_base_mismatch_k)
+        # print(f'base_mismatch_rate:\n{base_mismatch_rate[:, 0, 0, :]}')
+        # print(f'base_mismatch_penalty:\n{base_mismatch_penalty[:, 0, 0, :]}')
+        # del doctor_workdays, bool_availv, base_mismatch_rate
+        # gc.collect()
+
+        # применяем понижающие коэффициенты:
+        diff *= 1 / (extra_mod_penalty * base_mismatch_penalty)
+
+        diff_minus = np.sum(diff, axis=(1, 2, 3), where=(diff < 0))
+        diff_plus = np.sum(diff, axis=(1, 2, 3), where=(diff > 0))
+        diff_total = diff_plus - diff_minus
+        # print(f'diff by bots:\n{diff_minus}\n{diff_plus}\n{diff_plus - diff_minus}')
+        counter['diff_weighted'].append(diff_total.min() / HOURS)
+
+        m = 1e3 if mode == 'test' else 1e10
+        bot_scores = m / diff_total
+        # print(f'evaluated bot_scores: {bot_scores}')
 
         # for i in range(len(bot_scores)):
         #     logger.info(f'bot[{i}] score: {bot_scores[i]:.8f},'
@@ -450,20 +503,20 @@ class Scheduler:
         #                 print(f'bot: {b}, mod: {m}, day: {day}')
         return bot_scores
 
-    def select(self, container: Container) -> Container:
+    def select(self, container: Container, generation=None) -> Container:
 
-        best_bots, doctors, scores = container.unpack_best(self.n_survived, copy=True)
+        best_bots, best_bots_data, scores = container.unpack_best(self.n_survived, copy=True)
 
         # кладём лучших ботов в другой контейнер
         selected = Container()
-        selected.keep(best_bots, doctors)
-        selected.set_scores(scores)
-        del container
-        gc.collect()
+        selected.insert(best_bots, best_bots_data, scores, generation=generation)
         # logger.info(f'scores best scores: {scores}')
         return selected
 
     def mate(self, bots):
+        """
+        Выполняет скрещивание каждой пары ботов путём обмена модальностями между ними.
+        """
         assert self.n_survived % 2 == 0
         np.set_printoptions(formatter=dict(float=lambda x: f'{x:.1f}'))
         n_best_bots = bots.shape[0]
@@ -485,10 +538,10 @@ class Scheduler:
             indices = np.unique(gen.integers(0, v_mate.shape[1], size=v_mate.shape[1] // 2))
             v_mate[i][indices] = 1
         v_mate.shape = (v_mate_len, bots.shape[1], bots.shape[3])
-        new_bots = None
+        new_bots = []
         logger.debug(f'v_mate {v_mate.shape}:\n{v_mate}')
 
-        # производим мутацию
+        # производим мутацию для каждой пары согласно вектору случайного скрещивания
         for i in range(0, len(mate_indices), 2):
             mate_index = i // 2
             b0, b1 = bots[i], bots[i + 1]
@@ -586,8 +639,6 @@ class Scheduler:
 
                 # new_bot[mask] = src_bot[mask]
 
-            # mate_pair(b1, new_bot0)
-            # mate_pair(b0, new_bot1)
             new_bot0, new_bot1 = change_modalities(new_bot0, new_bot1)
             logger.debug(f'new_bot0:\n{new_bot0}')
             logger.debug(f'new_bot1:\n{new_bot1}')
@@ -598,47 +649,43 @@ class Scheduler:
 
             # print(f'new_bot0: {new_bot0.shape}')
             # print(f'new_bot1: {new_bot1.shape}')
-            new_pair = np.vstack([new_bot0[np.newaxis, :, :, :], new_bot1[np.newaxis, :, :, :]])
-            if new_bots is None:
-                new_bots = new_pair
-                logger.debug(f'new_bots: {new_bots.shape}')
-            else:
-                new_bots = np.vstack([new_bots, new_pair])
+            new_bots.append(new_bot0)
+            new_bots.append(new_bot1)
 
             logger.debug(f'mate_indices:\n{mate_indices[i:i + 2]}')
-            # print(f'new_pair[0]:\n{new_pair[0][0, :10]}')
-            # print(f'new_pair[1]:\n{new_pair[1][0, :10]}')
 
         # print(f'v_mod:\n{self.v_mod[0, :3]}')
-        logger.debug(f'new_bots: {new_bots.shape}')
+        new_bots = np.array(new_bots)
+        # logger.info(f'new_bots: {new_bots.shape}')
         return new_bots
 
     def mutate(self, bots):
-
+        """Выполняет мутацию ботов путём переключения модальностей врачей из числа им доступных"""
         mutate_k = 0.3  # доля мутирующих генов
 
-        def choice(arr1d):
-            """Случайный выбор модальности из доступных"""
-            return self.gen.choice(np.where(arr1d > 0)[0])
-
-        n_mod = self.v_mod.shape[2]
-        v_mod = self.v_mod.repeat(bots.shape[3], axis=3)
-        v_mod = v_mod.repeat(bots.shape[0], axis=0)
         # print(f'source bots {bots.shape}:\n{bots}')
-        # print(f'v_mod: {v_mod.shape}')
 
-        src_mod_indices = bots.argmax(axis=2)
+        # вектор весов модальностей, отражающий выполнение ботами плана работ
+        mod_weights = self.v_plan / bots.sum(axis=1, keepdims=True)
+        mod_weights_monitor = self.v_plan.sum(axis=(1, 3)) / bots.sum(axis=(1, 3))  # (!) для просмотра
+        # print(f'work_weights: {mod_weights.shape}')
+        # print(f'Выполнение плана (plan / schedule):\n{mod_weights.sum(axis=(1, 3))}')
+        # print(f'v_plan[0, 0, 2, :10]: {self.v_plan[0, 0, 2, :10]}')
+        # print(f'mod_weights[0, 0, 2, :10]: {mod_weights[0, 0, 2, :10]}')
+        # print(f'bots.sum(axis=1, keepdims=True)[0, 0, 2, :10]: {bots.sum(axis=1, keepdims=True)[0, 0, 2, :10]}')
+        # print(f'mod_weights_monitor:\n{mod_weights_monitor}')
+
+        # берём индекс модальности с максимальным объёмом работ
+        src_mod_indices = bots.argmax(axis=2).reshape((-1,))
         # print(f'src_mod_indices {src_mod_indices.shape}:\n{src_mod_indices}')
-        src_mod_indices = src_mod_indices.reshape((-1,))
 
-        rnd_mod_indices = np.apply_along_axis(choice, 2, v_mod)
-        # print(f'rnd_mod_indices {rnd_mod_indices.shape}:\n{rnd_mod_indices}')
-        rnd_mod_indices = rnd_mod_indices.reshape((-1,))
+        # получаем индекс случайной модальности из доступных для врача
+        rnd_mod_indices = self._generate_doctors_mods(bots.shape, mod_weights).reshape((-1,))
         # print(f'rnd_mod_indices {rnd_mod_indices.shape}:\n{rnd_mod_indices}')
 
         bots = bots.transpose((0, 1, 3, 2))
         bots_keep_shape = bots.shape
-        bots = bots.reshape((-1, n_mod))
+        bots = bots.reshape((-1, self.n_mods))
         long_index = np.arange(bots.shape[0])
 
         v_mutate = self.gen.random(size=len(long_index)) < mutate_k
@@ -662,99 +709,165 @@ class Scheduler:
 
         return bots
 
+    def mutate_v2(self, bots, donors):
+        mutate_k = 0.1  # доля мутирующих генов
+        mask = self.gen.random(size=bots.shape[:2]) < mutate_k
+        bots[mask] = donors[mask]
+        return bots
+
     def run(self, save=False):
         logger.info(f'v_mod: {self.v_mod.shape}')
         logger.info(f'v_plan: {self.v_plan.shape}')
         logger.info(f'v_base_avail: {self.v_base_avail.shape}')
+        counter = {'diff': [], 'diff_weighted': []}
+        # TODO: тест
+        if self.mode != 'test':
+            self.v_plan *= 1.43
 
-        container = self.initialize(n_bots=self.population_size)
-        container.print_shapes()
+        def print_stat(container: Container, title, first=None):
+            g = container.generation
+            bots, _, _ = container.unpack_best()
+            data = container.get_extended_data()
+            if first is not None:
+                data = data[:first]
+            print(f'Поколение #{g}/{self.n_generations}, {title}:')
+            print('\n'.join(f'id: {d["id"]} {"[" + d["source"] + "]":>10}, score: {d["score"]:9.5f}'
+                            f', schedule/plan by mods: {bots[i].sum(axis=(0, 2)) / self.v_plan.sum(axis=(0, 1, 3))}'
+                            for i, d in enumerate(data)))
+
+        random_bots = self.populate(n_bots=self.population_size)
+        container = Container()
+        container.insert(random_bots, source='populate', generation=0)
+        container.print()
 
         # вычисляем оценку ботов
-        bot_scores = self.evaluate(container)
+        bot_scores = self.evaluate(container, counter)
         # logger.info(f'bot_scores:\n{bot_scores}')
         container.set_scores(bot_scores)
 
         # производим отбор
-        container = self.select(container)
+        container = self.select(container, generation=0)
         gc.collect()
 
-        for generation in range(self.n_generations - 1):
+        # debug
+        print_stat(container, 'best bots')
+
+        # первичная оценка ресурсов с соотношении с планом
+        print(f'Первичное соотношение ресурсы/план:'
+              f' {np.mean(random_bots.sum(axis=(1, 2, 3)) / self.v_plan.sum(axis=(1, 2, 3))):.4f}')
+
+        for gn in range(self.n_generations):
+            generation = gn + 1
             # print(f'Поколение #{generation}')
             # получаем ботов из контейнера - там остались лучшие
-            bots, doctors, scores = container.unpack()
-            logger.info(f'Поколение #{generation + 1}/{self.n_generations}, best scores: {scores}')
-            # скрещиваем ботов
-            with timer('mate'):
-                new_bots = self.mate(bots)
-            # new_bots = bots
-            # производим мутацию
-            with timer('mutate'):
-                new_bots = self.mutate(new_bots)
+            bots, bots_data, best_bots_scores = container.unpack()
 
-            # добавляем случайных ботов
-            with timer('initialize'):
-                next_container = self.initialize(
-                    n_bots=self.population_size - self.n_survived
-                )
-            # график их работы врачей не меняются
-            next_container.append(new_bots, doctors.copy())
+            # вектор использования врачей для зануления работ при переизбытке ресурсов
+            v_used = None
+            # over_resources = bots.sum(axis=(1, 2, 3)).mean() / self.v_plan.sum()
+            """
+            if over_resources > 1.:
+                v_used = np.ones((1, bots.shape[1], 1, 1), dtype=np.float32)
+                k = 1. - 1. / over_resources
+                v_used[self.gen.random(size=v_used.shape) < k] = 0.
+                print(f'v_used count: {v_used.sum(where=v_used > 0.)}')
+
+                # применяем аналогичный вектор к первому поколению
+                if generation == 0:
+                    bots *= v_used
+            """
+
+            # вектор весов модальностей, отражающий выполнение плана работ текущей популяцией
+            # - усредняем по имеющимся ботам для задания тренда новым создаваемым в populate
+            mod_weights = None
+            # mod_weights = self.v_plan / bots.sum(axis=1, keepdims=True)
+            # mod_weights = np.mean(mod_weights, axis=0)
+
+            # формируем случайных ботов
+            # with timer('populate'):
+            random_bots = self.populate(n_bots=self.population_size)
+            container = Container()
+            container.insert(random_bots, source='populate', generation=generation)
+            # print(f'next_container bots: {next_container.bots.shape}')
+            donors, _, _ = container.extract(self.n_survived)
+            # print(f'next_container bots after extract: {next_container.bots.shape}')
+            # print(f'donors bots: {donors.shape}')
+
+            # скрещиваем лучших ботов
+            # with timer('mate'):
+            # TODO: доработать
+            descendants = self.mate(bots)
+            # descendants = bots
+            # print(f'descendants after mate: {descendants.shape}')
+
+            # производим мутацию
+            # with timer('mutate'):
+            descendants = self.mutate_v2(descendants, donors)
+            # print(f'descendants after mutate_v2: {descendants.shape}')
+
+            container.insert(descendants, source='mate', start_id=self.n_survived, generation=generation)
 
             # рассчитываем оценку новых ботов
             # with timer('evaluate') as t:
-            next_scores = self.evaluate(next_container)
+            scores = self.evaluate(container, counter)
+            container.set_scores(scores)
+            print_stat(container, 'evaluated bots', first=5)
 
-            # формируем общий контейнер всех ботов: рассчитанных в данном цикле и стека лучших
-            next_container.append(bots, doctors)
-            next_container.set_scores(np.hstack([next_scores, scores]))
+            # формируем общий контейнер всех ботов: сначала лучшие, затем полученные в данном цикле
+            container.insert(bots, bots_data, best_bots_scores, index=0)
+            # print(f'next_container best_bots_scores: {next_container.best_bots_scores}')
 
             # производим отбор из всех ботов:
-            # with timer('select') as t:
-            container = self.select(next_container)
+            container = self.select(container, generation=generation)
+            print_stat(container, 'best bots', first=5)
+
             gc.collect()
 
-        # пишем лучшего бота в базу
-        logger.info(f'best scores: {container.get_scores()}')
-        best_bots, _, _ = container.unpack_best(1)
-        best_bot = best_bots[0]
+        bots, bots_data, scores = container.unpack_best(1)
+        best_bot, best_bot_score = bots[0], scores[0]
+        best_bot_id, best_bot_source = bots_data[0]['id'], bots_data[0]['source']
         schedule = best_bot.sum(axis=1)
         v_plan = self.v_plan[0, 0, :, :]
-        diff = best_bot.sum(axis=0) - v_plan
+        v_schedule = best_bot.sum(axis=0)
+        diff = v_schedule - v_plan
+        diff_k = v_schedule / v_plan
+
         fmt_4_1 = dict(float=lambda x: f'{x:4.1f}')
-        fmt_6_0 = dict(float=lambda x: f'{x:6.0f}')
+        fmt_6_4 = dict(float=lambda x: f'{x:6.4f}')
         fmt_6_1 = dict(float=lambda x: f'{x:6.1f}')
-        m = 3600
+
+        print(f'\nbest bot: {best_bot_id} [{best_bot_source}], score: {best_bot_score:8.5f}')
+
+        # m = 3600
         if self.mode == 'test':
-            m = 1
-            logger.info(f'v_base_avail:\n{self.v_base_avail}')
+            # m = 1
+            logger.info(f'self.v_base_avail:\n{self.v_base_avail[0, :, 0, :]}')
             # logger.info(f'v_plan:\n{v_plan}')
             logger.info(f'best_bot:\n{best_bot}')
         np.set_printoptions(formatter=fmt_4_1)
-        logger.info(f'schedule:\n{schedule / m}')
+        # logger.info(f'schedule:\n{schedule / HOURS}')
         np.set_printoptions(formatter=fmt_6_1)
-        logger.info(f'difference (schedule - plan):\n{diff / m}')
-        logger.info(f'v_plan:\n{v_plan / m}')
+        logger.info(f'schedule:\n{v_schedule / HOURS}')
+        logger.info(f'v_plan:\n{v_plan / HOURS}')
+        logger.info(f'difference (schedule-plan):\n{diff / HOURS}')
+        np.set_printoptions(formatter=fmt_6_4)
+        logger.info(f'difference (schedule/plan):\n{diff_k}')
         np.set_printoptions(formatter=fmt_6_1)
-        logger.info(f'schedule by modalities:\n{best_bot.sum(axis=(0, 2)) / m}')
-        logger.info(f'plan by modalities:\n{v_plan.sum(axis=-1) / m}')
-        logger.info(f'difference by modalities (schedule - plan):\n{diff.sum(axis=-1) / m}')
-        logger.info(f'difference total (schedule - plan): {diff.sum() / m:.1f}')
+        logger.info(f'schedule by modalities:\n{v_schedule.sum(axis=1) / HOURS}')
+        logger.info(f'plan by modalities:\n{v_plan.sum(axis=1) / HOURS}')
+        logger.info(f'difference by modalities (schedule-plan):\n{diff.sum(axis=1) / HOURS}')
+        logger.info(f'difference by modalities (schedule/plan):\n{v_schedule.sum(axis=1) / v_plan.sum(axis=1)}')
+        logger.info(f'difference total (schedule-plan): {diff.sum() / HOURS:.1f}')
+        logger.info(f'difference total (schedule/plan): {v_schedule.sum() / v_plan.sum():.3f}')
+        plot(range(self.n_generations + 1), counter, 'Разница график-план')
+        # пишем лучшего бота в базу
         if save:
-            self.save_bot(best_bots[0])
+            self.save_bot(best_bot)
 
     def save_bot(self, bot):
 
-        q = f"""
-            select id, uid, day_start_time, schedule_type, time_rate,
-            row_number() over (order by id) - 1 as row_index 
-            from {DB_SCHEMA}.doctor order by id;
-        """
-        db = DB()
-        with db.get_cursor() as cursor:
-            cursor.execute(q)
-            doctors = get_all(cursor)
-            doctors = doctors.set_index('row_index').T.to_dict()
-        db.close()
+        doctors = self.dataloader.get_doctors_for_schedule_save()
+        doctors = doctors.set_index('row_index').T.to_dict()
 
         output = []
         for doctor_index in range(len(bot)):
@@ -779,7 +892,7 @@ class Scheduler:
             row['doctor'] = doctor['uid']
             row['day_start'] = datetime.combine(
                 self.month_layout['month_start'] + timedelta(days=row['day_index']), doctor['day_start_time'])
-            row['availability'] = self.v_base_avail[doctor_index][row['day_index']]
+            row['availability'] = self.v_base_avail[0, doctor_index, 0, row['day_index']]
 
             if row['availability'] == 1:
                 day_time = timedelta(hours=8)
@@ -789,13 +902,14 @@ class Scheduler:
             else:
                 row['time_volume'] = timedelta(seconds=0)
 
-                # формируем связанную таблицу по модальностям
+            # формируем связанную таблицу по модальностям
             if len(row['mods']) > 0:
                 mods = row['mods']
                 for mod_index in mods:
                     # TODO: в БД пишем без КУ
                     doctor_day_plan.append(
-                        [version, row['uid'], MODALITIES[mod_index], 'none', row['time_volume']])
+                        [version, row['uid'], MODALITIES[mod_index], 'none', row['time_volume']]
+                    )
             return row
 
         df['uid'] = None
@@ -810,8 +924,9 @@ class Scheduler:
         df_day = pd.DataFrame(doctor_day_plan, columns=[
             'version', 'doctor_availability', 'modality', 'contrast_enhancement', 'time_volume'])
 
-        q = f"delete from {DB_SCHEMA}.doctor_availability where version = '{version}'"
-        q_day = f"delete from {DB_SCHEMA}.doctor_day_plan where version = '{version}'"
+        q = f"delete from {self.db_schema}.doctor_availability where version = '{version}'"
+        q_day = f"delete from {self.db_schema}.doctor_day_plan where version = '{version}'"
+        db = DB(self.db_schema)
         with db.get_cursor() as cursor:
             cursor.execute(q)
             cursor.execute(q_day)
@@ -822,7 +937,45 @@ class Scheduler:
               unique=['version', 'doctor_availability', 'modality', 'contrast_enhancement'])
         t.call()
         db.close()
-        logger.info('Данные записаны')
+        logger.info('Данные записаны.')
+
+    def _get_doctors_mods(self):
+        """
+        Формирует вектор доступных модальностей врочей: [1, n_doctors, n_mods, 1] = 0, 1, 2,
+            где 2 означает основную модальность, 1 - дополнительную, 0 - отсутствие модальности
+        """
+        self.doctor_df.reset_index(drop=True, inplace=True)
+        # print(self.doctor_df.head())
+        v_mod = np.zeros((len(self.doctor_df), self.n_mods), dtype=np.int32)
+        mod_np = np.array(MODALITIES[:self.n_mods])
+
+        def set_mod(row):
+            row_index = row.name
+            if len(row['modalities']) > 0:
+                _, indices, _ = np.intersect1d(mod_np, row['modalities'], return_indices=True)
+                v_mod[row_index][indices] = 1
+            main_mod = np.where(mod_np == row['main_modality'])
+            v_mod[row_index][main_mod] = 2
+
+        self.doctor_df.apply(set_mod, axis=1)
+        # print(f'v_mod:\n{v_mod[:10]}')
+        return v_mod[np.newaxis, :, :, np.newaxis]
+
+    def _generate_doctors_mods(self, source_shape, mod_weights=None) -> np.ndarray:
+        """
+        Формирует вектор одной случайной модальности врачей из числа им доступных:
+            [:, :, 1, :],
+        """
+        # print(f'self.v_mod: {self.v_mod.shape}')
+        random_mods = self.gen.random(size=source_shape)
+        if mod_weights is not None:
+            random_mods *= mod_weights
+        # зануляем недоступные модальности
+        random_mods *= np.where(self.v_mod > 0, 1, 0)
+        random_mods = random_mods.argmax(axis=2)
+        # print(f'random_mods_index: {random_mods.shape}')
+
+        return random_mods[:, :, np.newaxis, :]
 
 
 class Test:
@@ -840,8 +993,8 @@ class Test:
         self.total_size = 1
         for i in self.bots_shape:
             self.total_size *= i
-        # self.month_layout = get_month_layout(month_start)
-        self.doctors = pd.DataFrame([
+
+        self.doctor_df = pd.DataFrame([
             # {'id': 1, 'main_modality': 'flg', 'modalities': ['kt', 'rg', 'mmg', 'dens'],
             {'id': 1, 'main_modality': 'kt', 'modalities': ['kt', 'mrt'],
              'schedule_type': '5/2', 'time_rate': 1.},
@@ -866,7 +1019,7 @@ class Test:
             [1, 1, 1, 1, 1, 0, 0],
             [1, 1, 1, 1, 1, 0, 0],
             [0, 0, 1, 1, 0, 0, 1]
-        ])
+        ])[np.newaxis, :, np.newaxis, :]
         self.v_plan = np.array([
             [8, 8, 8, 8, 8, 8, 8],
             [9.6, 9.6, 8, 8, 9.6, 9.6, 8],
@@ -907,7 +1060,7 @@ class Test:
         month_layout['month_end_weekday'] = get_weekday(month_layout['month_end'])
         month_layout['num_days'] = self.n_days
 
-        scheduler.doctors = self.doctors
+        scheduler.doctor_df = self.doctor_df
         scheduler.v_mod = self.v_mod[np.newaxis, :, :, np.newaxis]
         scheduler.v_base_avail = self.v_base_avail
         scheduler.n_mods = self.n_mods
@@ -928,21 +1081,33 @@ if __name__ == '__main__':
 
     main_month_start = datetime(2024, 1, 1)
 
-    DB_SCHEMA = 'test'
-    test = Test(main_month_start)
-    test.run()
+    # test = Test(main_month_start)
+    # test.run()
+    mode = 'test'
+    if mode == 'test':
+        MODALITIES = ['kt', 'mrt']
+        HOURS = 1.
+        n_generations = 10
+        population_size = 4
+        n_survived = 2
+    else:
+        n_generations = 30
+        population_size = 50
+        n_survived = 30
 
-    # main_scheduler = Scheduler(
-    #     main_month_start,
-    #     plan_version='validation',
-    #     n_generations=50,
-    #     population_size=100,
-    #     n_survived=60,
-    #     mode='main',
-    # )
-    # main_scheduler.run(save=False)
+    main_scheduler = Scheduler(
+        main_month_start,
+        plan_version='validation',
+        n_generations=n_generations,
+        population_size=population_size,
+        n_survived=n_survived,
+        mode=mode,
+    )
+    # main_scheduler._generate_doctors_mods()
+    # main_scheduler.populate(n_bots=main_scheduler.population_size)
+    main_scheduler.run(save=False)
 
-    # schedule = get_schedule('base', month_start, data_layer='day')
-    # schedule = get_schedule('base', month_start, data_layer='day_modality')
-    # schedule = get_schedule('base', month_start, data_layer='day_modality_ce')
+    # schedule = dataloader.get_schedule('base', month_start, data_layer='day')
+    # schedule = dataloader.get_schedule('base', month_start, data_layer='day_modality')
+    # schedule = dataloader.get_schedule('base', month_start, data_layer='day_modality_ce')
     # print(schedule.head(20))

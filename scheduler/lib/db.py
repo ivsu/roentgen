@@ -67,13 +67,20 @@ def paginator(cursor: pg_ext.cursor, limit: int = 100) -> pd.DataFrame:
 
 class DB:
 
-    def __init__(self):
+    def __init__(self, db_schema=None):
         self.tunnel = None
         self.connection = None
         self.cursor = None
         with open(CREDENTIALS, 'r') as fp:
-            self.credentials = json.load(fp)
-        self.schema = self.credentials['PG_SCHEMA']
+            self.credentials: dict = json.load(fp)
+
+        if db_schema:
+            self.schema = db_schema
+        elif 'PG_SCHEMA' in self.credentials.keys():
+            self.schema = self.credentials['PG_SCHEMA']
+        else:
+            self.schema = 'public'
+
         self.updater = Updater(self.schema)
 
     def set_tunnel(self):
