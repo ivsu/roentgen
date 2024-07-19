@@ -4,16 +4,26 @@ import gc
 from datetime import datetime, timedelta
 import pandas as pd
 import numpy as np
+import collections
 import matplotlib.pyplot as plt
+from matplotlib_inline.config import InlineBackend
 from lib.dataloader import DataLoader, get_weekday, get_month_layout, MODALITIES, SCHEDULE_TYPES
 from lib.db import DB, Transaction
 from lib.timeutils import timer
 from common.logger import Logger
 
 logger = Logger(__name__)
+InlineBackend.figure_format = 'retina'
 
 RANDOM_SCHEDULE_TYPE = False
-HOURS = 3600.  # количество секунд в часах (устанавливается в 1 для режима test)
+SECONDS = 3600.  # количество секунд в часах (устанавливается в 1 для режима test)
+
+SELECTION_METHOD = 'tournament'  # метод отбора популяции: best_bots, tournament
+MATE_RATE = 0.01  # пропорция генов, которыми обмениваются родители при скрещивании
+MUTATE_PROBABILITY = 0.2  # вероятносить применения мутации
+MUTATE_RATE = 0.01  # количество случайных переставляемых генов при мутации
+
+TMP_FILE_PATH = '/Users/ivan/Documents/CIFROPRO/Проекты/Нейронки/Расписание рентген-центра/'
 
 
 def plot(x, y_dict, title):
@@ -33,16 +43,17 @@ class Container:
         self.bots_data = np.array([])
         self.scores = np.array([])
         self.generation = None
+        self.gen = np.random.default_rng()
 
-    def append(self, bots, bots_data=None, source=None, start_id=0, generation=None):
-        self.bots = np.vstack([self.bots, bots]) if self.bots.size else bots
-        if generation is not None:
-            self.generation = generation
-        if bots_data is None:
-            ids = self._get_ids(bots.shape[0], start_id)
-            bots_data = np.array([{'id': bot_id, 'source': source} for bot_id in ids])
-
-        self.bots_data = np.hstack([self.bots_data, bots_data]) if self.bots.size else bots_data
+    # def append(self, bots, bots_data=None, source=None, start_id=0, generation=None):
+    #     self.bots = np.vstack([self.bots, bots]) if self.bots.size else bots
+    #     if generation is not None:
+    #         self.generation = generation
+    #     if bots_data is None:
+    #         ids = self._get_ids(bots.shape[0], start_id)
+    #         bots_data = np.array([{'id': bot_id, 'source': source} for bot_id in ids])
+    #
+    #     self.bots_data = np.hstack([self.bots_data, bots_data]) if self.bots.size else bots_data
 
     def insert(self, bots, bots_data=None, scores=None, index=None, source=None, start_id=0, generation=None):
 
@@ -82,8 +93,36 @@ class Container:
         else:
             return self.bots, self.bots_data, self.scores
 
-    def unpack_best(self, num=None, copy=False):
+    def tournament(self, num):
+        """Отбирает ботов методов турнирного отбора. num должно быть кратно population_size"""
+        assert len(self.scores) == len(self.bots) and self.scores.size
+        # assert len(self.scores) % num == 0
+        indices = np.arange(len(self.scores))
+        self.gen.shuffle(indices)
+        scores = self.scores[indices].copy()
+        rest = len(scores) % num
+        # дополним массивы индексов и оценок значениями, которые в дальнейшем не попадут выборку
+        if rest > 0:
+            indices = np.hstack([indices, np.repeat(-1, num - rest)])
+            scores = np.hstack([scores, np.repeat(-1., num - rest)])
+        indices = indices.reshape((num, -1), order='F')
+        scores = scores.reshape((num, -1), order='F')
+        # print(f'indices:\n{indices}')
+        # print(f'scores:\n{scores}')
 
+        best_indices_in_group = np.argpartition(scores, -1)[:, -1:].flatten()
+        # print(f'best_indices_in_group: {best_indices_in_group}')
+        best_indices_in_scores = indices[np.arange(best_indices_in_group.shape[0]), best_indices_in_group]
+        # print(f'best_indices_in_scores: {best_indices_in_scores}')
+        index = np.flip(best_indices_in_scores[np.argsort(self.scores[best_indices_in_scores])])
+        # print(f'index (sorted): {index}')
+        # print(f'scores (winners): {self.scores[index]}')
+        # print(f'self.scores: {self.scores}')
+
+        return self.bots[index].copy(), self.bots_data[index].copy(), self.scores[index].copy()
+
+    def best_bots(self, num=None, copy=False):
+        """Возвращает num лучших ботов"""
         if num is None:
             num = len(self.scores)
 
@@ -99,7 +138,7 @@ class Container:
     def get_extended_data(self):
         assert len(self.scores) == len(self.bots_data)
 
-        _, bots_data, scores = self.unpack_best()
+        _, bots_data, scores = self.best_bots()
 
         return np.array([{
             'id': bots_data[i]["id"],
@@ -176,7 +215,7 @@ class Scheduler:
         day_plan_df.sort_index(inplace=True)
         # print(day_plan_df.head(7))
         self.v_plan = day_plan_df.to_numpy(copy=True, dtype=np.float32)[np.newaxis, np.newaxis, :, :]
-        self.v_plan *= HOURS
+        self.v_plan *= SECONDS
         self.n_days = self.v_plan.shape[3]
         # print(f'v_plan:\n{self.v_plan[0, 0, :, :5]}')
 
@@ -211,10 +250,10 @@ class Scheduler:
         self.total_score = None
         self.best_bots = None
 
-    def populate(self, n_bots, mod_weights=None, v_used=None):
+    def populate(self, n_bots, mod_weights=None):
         # self.doctor_df, self.month_layout, self.v_base_avail, self.mode
         # -> container: v_bot
-        np.set_printoptions(formatter=dict(float=lambda x: f'{x:7.1f}'))
+        np.set_printoptions(formatter=dict(float=lambda x: f'{x:7.5f}'))
         # print(f'n_bots: {n_bots}')
         # print(f'n_doctors: {self.n_doctors}')
 
@@ -257,8 +296,13 @@ class Scheduler:
         v_bot = np.repeat(work_days[:, :, np.newaxis, :], repeats=self.n_mods, axis=2)
         # получаем вектор индексов случайной модальности
         v_random_mod_index = self._generate_doctors_mods(v_bot.shape, mod_weights)
-        v_random_mod_index = v_random_mod_index.transpose((0, 1, 3, 2)).reshape((-1,))
         # print(f'v_random_mod_index: {v_random_mod_index.shape}')
+        # TODO: отладка
+        unique, counts = np.unique(v_random_mod_index, return_counts=True)
+        # print(f'unique: {unique}')
+        print(f'[populate] mods: {counts / counts.sum()}')
+        # df = pd.DataFrame(v_random_mod_index)
+        v_random_mod_index = v_random_mod_index.transpose((0, 1, 3, 2)).reshape((-1,))
         # v_bot
         v_bot_mod_mask = np.zeros(v_bot.shape).reshape((-1, self.n_mods))
         # print(f'v_bot_mod_mask: {v_bot_mod_mask.shape}')
@@ -280,10 +324,10 @@ class Scheduler:
         mask = self.v_base_avail.repeat(n_bots, axis=0).repeat(self.n_mods, axis=2)
         v_bot[mask < 0] = 0.
         # зануляем часть ботов при переизбытке ресурсов
-        if v_used is not None:
-            v_bot *= v_used
+        # if v_used is not None:
+        #     v_bot *= v_used
         # переводим в секунды
-        v_bot *= HOURS
+        v_bot *= SECONDS
 
         # logger.info(f'initial bots schedule by modalities {bots.shape}:\n{bots.sum(axis=(1, 3)) / 3600}')
         # print(f'v_bot {v_bot.shape}')
@@ -299,6 +343,7 @@ class Scheduler:
 
         :param container:
         :return:
+        TODO: оценку выполнять понедельно
         """
 
         # time_pw = -10  # степень функции для оценки нормы рабочего времени в рамках дня
@@ -447,7 +492,7 @@ class Scheduler:
         # print(f'diff: {diff.shape}')
         diff_minus = np.sum(diff, axis=(1, 2, 3), where=(diff < 0))
         diff_plus = np.sum(diff, axis=(1, 2, 3), where=(diff > 0))
-        counter['diff'].append(np.min(diff_plus - diff_minus) / HOURS)
+        counter['diff'].append(np.min(diff_plus - diff_minus) / SECONDS)
 
         # общее количество назначенных работ по дням
         total_works = np.count_nonzero(v_bot, axis=(1, 2), keepdims=True)
@@ -482,30 +527,24 @@ class Scheduler:
         diff_plus = np.sum(diff, axis=(1, 2, 3), where=(diff > 0))
         diff_total = diff_plus - diff_minus
         # print(f'diff by bots:\n{diff_minus}\n{diff_plus}\n{diff_plus - diff_minus}')
-        counter['diff_weighted'].append(diff_total.min() / HOURS)
+        counter['diff_minus'].append(-diff_minus.max() / SECONDS)
+        counter['diff_plus'].append(diff_plus.min() / SECONDS)
+        counter['diff_weighted'].append(diff_total.min() / SECONDS)
 
         m = 1e3 if mode == 'test' else 1e10
         bot_scores = m / diff_total
         # print(f'evaluated bot_scores: {bot_scores}')
 
-        # for i in range(len(bot_scores)):
-        #     logger.info(f'bot[{i}] score: {bot_scores[i]:.8f},'
-        #                 f' недовыполнение: {np.sum(diff[i], where=f_under_plan[i]):6.2f},'
-        #                 f' перевыполнение: {np.sum(diff[i], where=~f_under_plan[i] & f_by_plan[i]):6.2f},'
-        #                 f' по плану: {np.sum(diff[i], where=f_by_plan[i]):6.2f}.')
-
-        # check = self.v_plan
-        # print('Проверка плана ...')
-        # for b in range(check.shape[0]):
-        #     for m in range(check.shape[2]):
-        #         for day in range(check.shape[3]):
-        #             if check[b, 0, m, day] == 0:
-        #                 print(f'bot: {b}, mod: {m}, day: {day}')
         return bot_scores
 
-    def select(self, container: Container, generation=None) -> Container:
+    def select(self, container: Container, method=None, generation=None) -> Container:
 
-        best_bots, best_bots_data, scores = container.unpack_best(self.n_survived, copy=True)
+        assert method in ['best_bots', 'tournament'], f'Неизвестный метод отбора: {method}'
+
+        if method == 'tournament':
+            best_bots, best_bots_data, scores = container.tournament(self.n_survived)
+        else:
+            best_bots, best_bots_data, scores = container.best_bots(self.n_survived, copy=True)
 
         # кладём лучших ботов в другой контейнер
         selected = Container()
@@ -520,24 +559,30 @@ class Scheduler:
         assert self.n_survived % 2 == 0
         np.set_printoptions(formatter=dict(float=lambda x: f'{x:.1f}'))
         n_best_bots = bots.shape[0]
-        gen = self.gen
+        n_doctors = bots.shape[1]
+        n_days = bots.shape[3]
+        # количество скрещивающихся генов (максимальное, т.к. применяется unique по
+        n_mate_gens = n_doctors // 2
 
         # определяем, кто с кем будет скрещиватья
         mate_indices = np.arange(n_best_bots)
-        gen.shuffle(mate_indices)
+        self.gen.shuffle(mate_indices)
         logger.debug(f'mate_indices:\n{mate_indices}')
 
         # *
         # получаем вектор случайного скрещивания для всех пар родителей
         v_mate_len = self.n_survived // 2
-        v_mate = np.zeros((v_mate_len, bots.shape[1], bots.shape[3]), dtype=np.int32)
+        v_mate = np.zeros((v_mate_len, n_doctors, n_days), dtype=np.int32)
 
         # добавляем случайные индексы второго родителя
-        v_mate.shape = (v_mate_len, -1)
-        for i in range(v_mate.shape[0]):
-            indices = np.unique(gen.integers(0, v_mate.shape[1], size=v_mate.shape[1] // 2))
-            v_mate[i][indices] = 1
-        v_mate.shape = (v_mate_len, bots.shape[1], bots.shape[3])
+        # v_mate.shape = (v_mate_len, -1)
+        # for i in range(v_mate.shape[0]):
+        #     indices = np.unique(self.gen.integers(0, n_doctors, size=n_doctors // 2))
+        #     v_mate[i][indices] = 1
+        mate_gens = self.gen.random(size=(v_mate_len, n_doctors, n_days)) < MATE_RATE
+        v_mate[mate_gens] = 1
+        # v_mate.shape = (v_mate_len, n_doctors, bots.shape[3])
+
         new_bots = []
         logger.debug(f'v_mate {v_mate.shape}:\n{v_mate}')
 
@@ -661,8 +706,6 @@ class Scheduler:
 
     def mutate(self, bots):
         """Выполняет мутацию ботов путём переключения модальностей врачей из числа им доступных"""
-        mutate_k = 0.3  # доля мутирующих генов
-
         # print(f'source bots {bots.shape}:\n{bots}')
 
         # вектор весов модальностей, отражающий выполнение ботами плана работ
@@ -688,7 +731,7 @@ class Scheduler:
         bots = bots.reshape((-1, self.n_mods))
         long_index = np.arange(bots.shape[0])
 
-        v_mutate = self.gen.random(size=len(long_index)) < mutate_k
+        v_mutate = self.gen.random(size=len(long_index)) < MUTATE_RATE
 
         keep_values = bots[long_index, rnd_mod_indices].copy()
         # print(f'keep_values {keep_values.shape}:\n{keep_values}')
@@ -719,23 +762,33 @@ class Scheduler:
         logger.info(f'v_mod: {self.v_mod.shape}')
         logger.info(f'v_plan: {self.v_plan.shape}')
         logger.info(f'v_base_avail: {self.v_base_avail.shape}')
-        counter = {'diff': [], 'diff_weighted': []}
+        counter = {'diff': [], 'diff_minus': [], 'diff_plus': [], 'diff_weighted': []}
         # TODO: тест
         if self.mode != 'test':
-            self.v_plan *= 1.43
+            self.v_plan[:, :, 2] *= 1.43
+            pass
+
+        # вектор весов модальностей, отражающий распределение работ по модальностям в плане работ
+        # используется для генерации ботов в populate
+        mod_weights = self.v_plan.sum(axis=3, keepdims=True) / self.v_plan.sum()
+        print(f'mod_weights: {mod_weights[0, 0, :, 0]}, sum: {mod_weights.sum()}')
 
         def print_stat(container: Container, title, first=None):
             g = container.generation
-            bots, _, _ = container.unpack_best()
+            bots, _, _ = container.best_bots()
             data = container.get_extended_data()
+            cnt = collections.Counter()
+            for d in data:
+                cnt[d['source']] += 1
             if first is not None:
                 data = data[:first]
             print(f'Поколение #{g}/{self.n_generations}, {title}:')
+            print(f'Соотношение: {dict(cnt)}')
             print('\n'.join(f'id: {d["id"]} {"[" + d["source"] + "]":>10}, score: {d["score"]:9.5f}'
                             f', schedule/plan by mods: {bots[i].sum(axis=(0, 2)) / self.v_plan.sum(axis=(0, 1, 3))}'
                             for i, d in enumerate(data)))
 
-        random_bots = self.populate(n_bots=self.population_size)
+        random_bots = self.populate(n_bots=self.population_size, mod_weights=mod_weights)
         container = Container()
         container.insert(random_bots, source='populate', generation=0)
         container.print()
@@ -746,15 +799,14 @@ class Scheduler:
         container.set_scores(bot_scores)
 
         # производим отбор
-        container = self.select(container, generation=0)
+        container = self.select(container, method=SELECTION_METHOD, generation=0)
         gc.collect()
+
+        print(f'Первичное соотношение ресурсы/план:'
+              f' {np.mean(random_bots.sum(axis=(1, 2, 3)) / self.v_plan.sum(axis=(1, 2, 3))):.4f}')
 
         # debug
         print_stat(container, 'best bots')
-
-        # первичная оценка ресурсов с соотношении с планом
-        print(f'Первичное соотношение ресурсы/план:'
-              f' {np.mean(random_bots.sum(axis=(1, 2, 3)) / self.v_plan.sum(axis=(1, 2, 3))):.4f}')
 
         for gn in range(self.n_generations):
             generation = gn + 1
@@ -779,13 +831,13 @@ class Scheduler:
 
             # вектор весов модальностей, отражающий выполнение плана работ текущей популяцией
             # - усредняем по имеющимся ботам для задания тренда новым создаваемым в populate
-            mod_weights = None
+            # mod_weights = None
             # mod_weights = self.v_plan / bots.sum(axis=1, keepdims=True)
             # mod_weights = np.mean(mod_weights, axis=0)
 
             # формируем случайных ботов
             # with timer('populate'):
-            random_bots = self.populate(n_bots=self.population_size)
+            random_bots = self.populate(n_bots=self.population_size, mod_weights=mod_weights)
             container = Container()
             container.insert(random_bots, source='populate', generation=generation)
             # print(f'next_container bots: {next_container.bots.shape}')
@@ -796,16 +848,19 @@ class Scheduler:
             # скрещиваем лучших ботов
             # with timer('mate'):
             # TODO: доработать
+            source = 'mate'
             descendants = self.mate(bots)
             # descendants = bots
             # print(f'descendants after mate: {descendants.shape}')
 
             # производим мутацию
             # with timer('mutate'):
-            descendants = self.mutate_v2(descendants, donors)
+            if self.gen.random() < MUTATE_PROBABILITY:
+                descendants = self.mutate_v2(descendants, donors)
+                source = 'mutate'
             # print(f'descendants after mutate_v2: {descendants.shape}')
 
-            container.insert(descendants, source='mate', start_id=self.n_survived, generation=generation)
+            container.insert(descendants, source=source, start_id=self.n_survived, generation=generation)
 
             # рассчитываем оценку новых ботов
             # with timer('evaluate') as t:
@@ -818,12 +873,12 @@ class Scheduler:
             # print(f'next_container best_bots_scores: {next_container.best_bots_scores}')
 
             # производим отбор из всех ботов:
-            container = self.select(container, generation=generation)
+            container = self.select(container, method=SELECTION_METHOD, generation=generation)
             print_stat(container, 'best bots', first=5)
 
             gc.collect()
 
-        bots, bots_data, scores = container.unpack_best(1)
+        bots, bots_data, scores = container.best_bots(1)
         best_bot, best_bot_score = bots[0], scores[0]
         best_bot_id, best_bot_source = bots_data[0]['id'], bots_data[0]['source']
         schedule = best_bot.sum(axis=1)
@@ -845,21 +900,22 @@ class Scheduler:
             # logger.info(f'v_plan:\n{v_plan}')
             logger.info(f'best_bot:\n{best_bot}')
         np.set_printoptions(formatter=fmt_4_1)
-        # logger.info(f'schedule:\n{schedule / HOURS}')
+        # logger.info(f'schedule:\n{schedule / SECONDS}')
         np.set_printoptions(formatter=fmt_6_1)
-        logger.info(f'schedule:\n{v_schedule / HOURS}')
-        logger.info(f'v_plan:\n{v_plan / HOURS}')
-        logger.info(f'difference (schedule-plan):\n{diff / HOURS}')
+        logger.info(f'schedule:\n{v_schedule / SECONDS}')
+        logger.info(f'v_plan:\n{v_plan / SECONDS}')
+        logger.info(f'difference (schedule-plan):\n{diff / SECONDS}')
         np.set_printoptions(formatter=fmt_6_4)
         logger.info(f'difference (schedule/plan):\n{diff_k}')
         np.set_printoptions(formatter=fmt_6_1)
-        logger.info(f'schedule by modalities:\n{v_schedule.sum(axis=1) / HOURS}')
-        logger.info(f'plan by modalities:\n{v_plan.sum(axis=1) / HOURS}')
-        logger.info(f'difference by modalities (schedule-plan):\n{diff.sum(axis=1) / HOURS}')
+        logger.info(f'schedule by modalities:\n{v_schedule.sum(axis=1) / SECONDS}')
+        logger.info(f'plan by modalities:\n{v_plan.sum(axis=1) / SECONDS}')
+        logger.info(f'difference by modalities (schedule-plan):\n{diff.sum(axis=1) / SECONDS}')
         logger.info(f'difference by modalities (schedule/plan):\n{v_schedule.sum(axis=1) / v_plan.sum(axis=1)}')
-        logger.info(f'difference total (schedule-plan): {diff.sum() / HOURS:.1f}')
+        logger.info(f'difference total (schedule-plan): {diff.sum() / SECONDS:.1f}')
         logger.info(f'difference total (schedule/plan): {v_schedule.sum() / v_plan.sum():.3f}')
-        plot(range(self.n_generations + 1), counter, 'Разница график-план')
+
+        plot(range(self.n_generations + 1), counter, 'Мин. разница график-план')
         # пишем лучшего бота в базу
         if save:
             self.save_bot(best_bot)
@@ -961,116 +1017,21 @@ class Scheduler:
         # print(f'v_mod:\n{v_mod[:10]}')
         return v_mod[np.newaxis, :, :, np.newaxis]
 
-    def _generate_doctors_mods(self, source_shape, mod_weights=None) -> np.ndarray:
+    def _generate_doctors_mods(self, bots_shape, mod_weights) -> np.ndarray:
         """
         Формирует вектор одной случайной модальности врачей из числа им доступных:
             [:, :, 1, :],
         """
         # print(f'self.v_mod: {self.v_mod.shape}')
-        random_mods = self.gen.random(size=source_shape)
-        if mod_weights is not None:
-            random_mods *= mod_weights
-        # зануляем недоступные модальности
-        random_mods *= np.where(self.v_mod > 0, 1, 0)
-        random_mods = random_mods.argmax(axis=2)
-        # print(f'random_mods_index: {random_mods.shape}')
+        mods_shape = bots_shape[:2] + (bots_shape[3],)
+        random_mods = self.gen.random(size=mods_shape)
+        # кумулятивный вектор распределения вероятностей
+        v_prop = np.cumsum(np.hstack([0., mod_weights[0, 0, :, 0]]))
+        v_prop[self.n_mods] = 1.01  # на случай, если random выдаст ровно единицу
+        print(f'v_prop: {v_prop}')
+        random_mods = np.searchsorted(v_prop, random_mods) - 1
 
         return random_mods[:, :, np.newaxis, :]
-
-
-class Test:
-
-    def __init__(self, month_start):
-        self.n_generations = 10
-        self.n_survived = 30
-
-        self.population_size = 50
-        self.n_doctors = 3
-        self.n_mods = 2
-        self.n_days = 7
-
-        self.bots_shape = (self.population_size, self.n_doctors, self.n_mods, self.n_days)
-        self.total_size = 1
-        for i in self.bots_shape:
-            self.total_size *= i
-
-        self.doctor_df = pd.DataFrame([
-            # {'id': 1, 'main_modality': 'flg', 'modalities': ['kt', 'rg', 'mmg', 'dens'],
-            {'id': 1, 'main_modality': 'kt', 'modalities': ['kt', 'mrt'],
-             'schedule_type': '5/2', 'time_rate': 1.},
-            {'id': 3, 'main_modality': 'kt', 'modalities': [],
-             'schedule_type': '5/2', 'time_rate': 1.},
-            # {'id': 4, 'main_modality': 'kt', 'modalities': ['mrt', 'rg', 'flg', 'dens'],
-            #  'schedule_type': '5/2', 'time_rate': 0.8},
-            {'id': 4, 'main_modality': 'mrt', 'modalities': [],
-             'schedule_type': '2/2', 'time_rate': 0.8},
-        ])
-
-        self.month_start = month_start
-        self.v_mod = np.array([  # ['kt', 'mrt', 'rg', 'flg', 'mmg', 'dens']
-            # [1, 0, 1, 2, 1, 1],
-            # [0, 2, 0, 1, 1, 0],
-            # [2, 1, 1, 0, 0, 1],
-            [2, 1],
-            [2, 0],
-            [0, 2],
-        ])
-        self.v_base_avail = np.array([
-            [1, 1, 1, 1, 1, 0, 0],
-            [1, 1, 1, 1, 1, 0, 0],
-            [0, 0, 1, 1, 0, 0, 1]
-        ])[np.newaxis, :, np.newaxis, :]
-        self.v_plan = np.array([
-            [8, 8, 8, 8, 8, 8, 8],
-            [9.6, 9.6, 8, 8, 9.6, 9.6, 8],
-            # [0.1, 4, 0.1, 0.1],
-            # [8, 0.1, 0.1, 0.1],
-            # [0.1, 8, 12, 0.1],
-            # [0.1, 4, 1, 7],
-        ])[np.newaxis, np.newaxis, :, :]
-
-        mask = np.ones(self.bots_shape, dtype=np.bool_)
-        self.bots_mask = mask & self.v_mod[np.newaxis, :, :, np.newaxis] == 0
-
-        self.gen = np.random.default_rng()
-        # self.v_doctor = [self.gen.choice([8, 12]) for _ in range(self.n_doctors)]
-
-    def populate(self):
-        gen = self.gen
-        bots = np.arange(self.total_size)
-        zero_indices = gen.integers(0, len(bots), size=len(bots) // 2)
-        bots[zero_indices] = 0
-        gen.shuffle(bots)
-        bots.shape = self.bots_shape
-
-        return bots
-
-    def run(self):
-        scheduler = Scheduler(
-            self.month_start,
-            plan_version='validation',
-            n_generations=self.n_generations,
-            population_size=self.population_size,
-            n_survived=self.n_survived,
-            mode='test',
-        )
-        # print('month_layout:', scheduler.month_layout)
-        month_layout = scheduler.month_layout
-        month_layout['month_end'] = month_layout['month_start'] + timedelta(days=self.n_days)
-        month_layout['month_end_weekday'] = get_weekday(month_layout['month_end'])
-        month_layout['num_days'] = self.n_days
-
-        scheduler.doctor_df = self.doctor_df
-        scheduler.v_mod = self.v_mod[np.newaxis, :, :, np.newaxis]
-        scheduler.v_base_avail = self.v_base_avail
-        scheduler.n_mods = self.n_mods
-
-        scheduler.v_plan = self.v_plan
-
-        # scheduler.mate(bots)
-        scheduler.run(save=False)
-        # print(f'bot0:\n{bots[0]}')
-        # print(f'bot1:\n{bots[1]}')
 
 
 if __name__ == '__main__':
@@ -1081,19 +1042,17 @@ if __name__ == '__main__':
 
     main_month_start = datetime(2024, 1, 1)
 
-    # test = Test(main_month_start)
-    # test.run()
-    mode = 'test'
+    mode = 'main'
     if mode == 'test':
         MODALITIES = ['kt', 'mrt']
-        HOURS = 1.
+        SECONDS = 1.
         n_generations = 10
         population_size = 4
         n_survived = 2
     else:
         n_generations = 30
-        population_size = 50
-        n_survived = 30
+        population_size = 100
+        n_survived = 40
 
     main_scheduler = Scheduler(
         main_month_start,
