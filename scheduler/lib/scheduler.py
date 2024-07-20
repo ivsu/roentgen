@@ -7,7 +7,7 @@ import numpy as np
 import collections
 import matplotlib.pyplot as plt
 from matplotlib_inline.config import InlineBackend
-from lib.dataloader import DataLoader, get_weekday, get_month_layout, MODALITIES, SCHEDULE_TYPES
+from lib.dataloader import DataLoader, get_month_layout, MODALITIES, SCHEDULE_TYPES
 from lib.db import DB, Transaction
 from lib.timeutils import timer
 from common.logger import Logger

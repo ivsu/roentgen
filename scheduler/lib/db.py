@@ -6,6 +6,7 @@ import json
 import os
 from lib.updater import Updater
 from common.logger import Logger
+from settings import CREDENTIALS_FILE
 
 """
 TODO: что-то сделать с сообщением о входящих подключениях
@@ -20,8 +21,6 @@ TODO: что-то сделать с сообщением о входящих п�
 #    from cryptography.utils import CryptographyDeprecationWarning
 #    warnings.filterwarnings("ignore", category=CryptographyDeprecationWarning)
 
-
-CREDENTIALS = 'assets/credentials.json'
 
 logger = Logger(__name__)
 
@@ -71,7 +70,7 @@ class DB:
         self.tunnel = None
         self.connection = None
         self.cursor = None
-        with open(CREDENTIALS, 'r') as fp:
+        with open(CREDENTIALS_FILE, 'r') as fp:
             self.credentials: dict = json.load(fp)
 
         if db_schema:
