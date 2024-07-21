@@ -10,12 +10,51 @@ from hyperparameters import Hyperparameters
 
 logger = Logger(__name__)
 
+# текстовые метки каналов данных
+CHANNEL_NAMES = ['kt', 'kt_ce1', 'kt_ce2', 'mrt', 'mrt_ce1', 'mrt_ce2', 'rg', 'flg', 'mmg', 'dens']
+# словарь с именами и индексами каналов данных
+CHANNEL_INDEX = {name: ch for ch, name in enumerate(CHANNEL_NAMES)}
+
+
+def generator(df, splits, split, prediction_len):
+    """
+    Генератор выборок.
+
+    :param df: датафрейм для формирования выборки
+    :param splits: количество выборок, на которое делится датасет (2, 3)
+    :param split: имя сплита (train, validation, test)
+    :param prediction_len: глубина предсказания
+    """
+    assert splits in [2, 3]
+    assert split in ['train', 'validation', 'test']
+
+    # определим конечный индекс данных, в зависимости от выборки
+    # сплиты будут разной длины на prediction_len, но начало у них всех одинаковое
+    if splits == 3 and split == 'train':
+        end_index = len(df) - prediction_len * 2
+    elif (splits == 3 and split == 'validation' or
+          splits == 2 and split == 'train'):
+        end_index = len(df) - prediction_len
+    elif split == 'test':
+        end_index = len(df)
+    else:
+        raise Exception(f'Неверное сочетание имени выборки [{split}] и количества выборок [{splits}].')
+
+    # дата начала временной последовательности - одинаковая для всех данных
+    # переводим в timestamp, т.к. Arrow не понимает Period, -
+    # будем конвертировать в Period на этапе трансформации
+    start_date = df.index.min().to_timestamp()
+
+    for channel, index in CHANNEL_INDEX.items():
+        yield {
+            'start': start_date,
+            'target': df[channel].iloc[:end_index].to_list(),
+            # статический признак последовательности
+            'feat_static_cat': [index]
+        }
+
 
 class DataManager:
-    # текстовые метки каналов данных
-    CHANNEL_NAMES = ['kt', 'kt_ce1', 'kt_ce2', 'mrt', 'mrt_ce1', 'mrt_ce2', 'rg', 'flg', 'mmg', 'dens']
-    # словарь с именами и индексами каналов данных
-    CHANNEL_INDEX = {name: ch for ch, name in enumerate(CHANNEL_NAMES)}
 
     def __init__(self):
         """
@@ -23,12 +62,12 @@ class DataManager:
         Также позволяет сгруппировать данные до заданной частоты.
         Хранит полученный датафрейм для генерации датасетов.
         """
-        # глубина предсказания - длина предсказываемой последовательности
-        self.prediction_len = None
         # датафрейм - источник данных для выборок датасетов
         self.df = None
+        # глубина предсказания - длина предсказываемой последовательности
+        self.prediction_len = None
         # частота данных
-        self.freq = '1W'
+        self.freq = None
 
     def read(self):
         db = DB()
@@ -45,30 +84,6 @@ class DataManager:
             df: pd.DataFrame = get_all(cursor)
         db.close()
 
-        # просуммируем данные по неполным неделям в начале и конце года
-        if False:
-            check_sum = df['amount'].sum()
-            for year in range(df['year'].min() + 1, df['year'].max() + 1):
-                # print(f'year: {year}')
-                first_date = datetime(year, 1, 1)
-                if first_date.weekday() == 0:
-                    continue
-                last_week_cond = (df['year'] == (year - 1)) & (df['week'] == df['week'].max())
-                first_week_cond = (df['year'] == year) & (df['week'] == 1)
-                summarized = df[last_week_cond | first_week_cond]
-                # print(f'summarized:\n{summarized}')
-                summarized = summarized.groupby(['modality', 'ce'], as_index=False).sum()
-                summarized['year'] = year
-                summarized['week'] = 1
-                # print(f'summarized:\n{summarized}')
-                df.drop(df[last_week_cond | first_week_cond].index, inplace=True)
-                # print(f'dropped rows: {df[last_week_cond | first_week_cond]}')
-                df = pd.concat([df, summarized], axis=0, ignore_index=True)
-                df.sort_values(['year', 'week', 'modality', 'ce'])
-                first_week_cond = (df['year'] == year) & (df['week'] == 1)
-                # print(f'inserted rows:\n{df[first_week_cond]}')
-            assert check_sum == df['amount'].sum()
-
         def get_first_week_sunday(year, week):
             first_date = datetime(year, 1, 1)
             return first_date + timedelta(weeks=week - 1, days=6 - first_date.weekday())
@@ -84,10 +99,10 @@ class DataManager:
         df['datetime'] = df.apply(week_to_date_time, axis=1)
         df['channel'] = df.apply(compose_channel, axis=1)
         # print(df[['datetime', 'channel', 'amount']].iloc[-20:])
-        print(df.columns)
+        # print(df.columns)
 
         df = df.pivot(index=['datetime'], columns=['channel'], values=['amount'])
-        print(df.columns.levels)
+        # print(df.columns.levels)
         df.columns = df.columns.levels[1]
         print(df.columns)
         self.df = df
@@ -104,7 +119,7 @@ class DataManager:
         # self._rebuild(freq)
         # переводим индекс в pd.Period
         self.df.index = self.df.index.to_period(freq)
-        print(f'self.df:\n{self.df}')
+        # print(f'self.df:\n{self.df}')
 
     def _rebuild(self, freq):
         """
@@ -202,19 +217,13 @@ class DataManager:
         # будем конвертировать в Period на этапе трансформации
         start_date = self.df.index.min().to_timestamp()
 
-        for channel, index in self.CHANNEL_INDEX.items():
+        for channel, index in CHANNEL_INDEX.items():
             yield {
                 'start': start_date,
                 'target': self.df[channel].iloc[:end_index].to_list(),
                 # статический признак последовательности
                 'feat_static_cat': [index]
             }
-
-    def _newname(self, sample):
-        """ Формирует имя файла рабочего датасета """
-        parts = self.path.split('/')
-        parts[-1] = '/data/' + sample + '.csv'
-        return '/'.join(parts)
 
 
 if __name__ == '__main__':
@@ -232,9 +241,12 @@ if __name__ == '__main__':
         freq=check_hp.get('freq'),
         prediction_len=check_hp.get('prediction_len')
     )
-    # print(dm.df.columns)
-    print(dm.df['rg'])
 
     # формируем выборки
-    train_dataset = dm.from_generator(splits=2, split='train')
-    test_dataset = dm.from_generator(splits=2, split='test')
+    train_dataset = Dataset.from_generator(generator, gen_kwargs={
+        'df': dm.df, 'splits': 2, 'split': 'train', 'prediction_len': check_hp.get('prediction_len')})
+    test_dataset = Dataset.from_generator(generator, gen_kwargs={
+        'df': dm.df, 'splits': 2, 'split': 'test', 'prediction_len': check_hp.get('prediction_len')})
+
+    for sample in train_dataset:
+        print(sample)

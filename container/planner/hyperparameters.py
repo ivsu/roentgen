@@ -6,7 +6,7 @@ from common.logger import Logger
 
 logger = Logger(__name__)
 
-# PROJECT_FOLDER = '/content/drive/MyDrive/university/roentgen/bots/'
+PROJECT_FOLDER = '/content/drive/MyDrive/university/roentgen/'
 
 
 class Hyperparameters:
@@ -19,11 +19,11 @@ class Hyperparameters:
             # частота, с которой группируются данные для подачи в сеть
             freq='W-SUN',
             # длина предсказываемой последовательности
-            prediction_len=5,
+            prediction_len=4,
             # количество эпох на прогрев модели
             warmup_epochs=5,
             # папка для хранения ботов
-            # project_folder=PROJECT_FOLDER + 'bots/',
+            bots_folder=PROJECT_FOLDER + 'bots/',
             # количество итераций поиска (смены популяций ботов)
             # TODO: заменить на критерий окончания поиска
             n_search=10,
