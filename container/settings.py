@@ -1,7 +1,8 @@
 import os
 
 CREDENTIALS_FILE = 'assets/credentials.json'
-PROJECT_FOLDER = 'drive/MyDrive/university/roentgen/'
+DRIVE_FOLDER = '/content/drive/MyDrive/university/roentgen/'
+PROJECT_FOLDER = '/content/roentgen/container/'
 
 try:
     import google.colab
@@ -9,5 +10,6 @@ try:
     CREDENTIALS_FILE = PROJECT_FOLDER + 'credentials.json'
 except:
     RUN_ENV = 'IDE'
+    PROJECT_FOLDER = '/Users/ivan/PycharmProjects/roentgen/container/'
 
 os.environ['RUN_ENV'] = RUN_ENV

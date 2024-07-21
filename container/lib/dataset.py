@@ -6,7 +6,7 @@ import hashlib
 import random
 from datetime import time, datetime, timedelta
 
-from lib.db import DB, get_all
+from common.db import DB, get_all
 from lib.timeutils import time_to_interval, get_time_chunck
 from lib.dataloader import DataLoader, get_month_layout, \
     DOCTOR_COLUMNS, DOCTOR_DAY_PLAN_COLUMNS, MODALITIES, MODALITIES_MAP, SCHEDULE_TYPES

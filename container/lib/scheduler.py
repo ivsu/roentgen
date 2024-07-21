@@ -8,8 +8,7 @@ import collections
 import matplotlib.pyplot as plt
 from matplotlib_inline.config import InlineBackend
 from lib.dataloader import DataLoader, get_month_layout, MODALITIES, SCHEDULE_TYPES
-from lib.db import DB, Transaction
-from lib.timeutils import timer
+from common.db import DB, Transaction
 from common.logger import Logger
 
 logger = Logger(__name__)

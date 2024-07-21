@@ -4,9 +4,9 @@ from sshtunnel import SSHTunnelForwarder
 import pandas as pd
 import json
 import os
-from lib.updater import Updater
+from common.updater import Updater
 from common.logger import Logger
-from settings import CREDENTIALS_FILE
+from settings import PROJECT_FOLDER, CREDENTIALS_FILE
 
 """
 TODO: что-то сделать с сообщением о входящих подключениях
@@ -70,7 +70,7 @@ class DB:
         self.tunnel = None
         self.connection = None
         self.cursor = None
-        with open(CREDENTIALS_FILE, 'r') as fp:
+        with open(PROJECT_FOLDER + CREDENTIALS_FILE, 'r') as fp:
             self.credentials: dict = json.load(fp)
 
         if db_schema:
