@@ -5,8 +5,12 @@ from datetime import datetime, timedelta
 from datasets import Dataset
 from functools import lru_cache
 from common.logger import Logger
-from common.db import DB, get_all
 from hyperparameters import Hyperparameters
+from settings import DB_VERSION
+if DB_VERSION == 'PG':
+    from common.db import DB, get_all
+else:
+    from common.dblite import DB, get_all
 
 logger = Logger(__name__)
 
@@ -68,13 +72,15 @@ class DataManager:
         self.prediction_len = None
         # частота данных
         self.freq = None
+        # префикс схемы БД
+        self.db_schema_prefix = 'roentgen.' if DB_VERSION == 'PG' else ''
 
     def read(self):
         db = DB()
-        query = """
+        query = f"""
             select
                 year, week, modality, contrast_enhancement as ce, amount
-            from "roentgen".work_summary
+            from {self.db_schema_prefix}work_summary
             where year >= 2022
             order by year, week
             ;
@@ -102,9 +108,8 @@ class DataManager:
         # print(df.columns)
 
         df = df.pivot(index=['datetime'], columns=['channel'], values=['amount'])
-        # print(df.columns.levels)
+        # print(df.columns)
         df.columns = df.columns.levels[1]
-        print(df.columns)
         self.df = df
 
         logger.info('Данные загружены.')

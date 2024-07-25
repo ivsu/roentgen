@@ -8,52 +8,25 @@ from gluonts.time_feature import (
     time_features_from_frequency_str,
     # get_lags_for_frequency,
 )
-from gluonts.dataset.field_names import FieldName
-from gluonts.transform import (
-    AddAgeFeature,
-    AddObservedValuesIndicator,
-    AddTimeFeatures,
-    AsNumpyArray,
-    Chain,
-    ExpectedNumInstanceSampler,
-    InstanceSplitter,
-    RemoveFields,
-    SelectFields,
-    SetField,
-    TestSplitSampler,
-    Transformation,
-    ValidationSplitSampler,
-    VstackFeatures,
-    RenameFields,
-)
-# базовый класс для определения трансформации
-from transformers import PretrainedConfig
-# для нарезки временного ряда на окна
-from gluonts.transform.sampler import InstanceSampler
-from typing import Optional
 
 from common.logger import Logger
 
 logger = Logger(__name__)
 
 
-
 class ModelBuilder:
     def __init__(self, dataset, hp, verbose=0):
         # создаём дополнительные признаки - временные лаги - на сколько дней мы "смотрим назад"
         lags_sequence = [
-            1, 2, 3, 4, 5, 6, 7, 8,     # недельные признаки
-            13, 14, 15,                 # две недели назад
-            20, 21, 22,                 # три недели назад
-            27, 28, 29, 30, 31,         # четыре недели и месяц назад
-            58, 59, 60, 61,             # два месяца назад
-            89, 90, 91, 92,             # квартал назад
-            363, 364, 365, 366          # год назад
+            1, 2, 3, 4, 5,      # предшествующие недели
+            51, 52, 53, 54,  # год назад
+            103, 104, 105, 106, 107  # 2 года назад
             ]
 
         # формируем дополнительные временные признаки: день недели, день месяца, день года
         # при определении трансформации к ним будет добавлен ещё один - "возраст" последовательности
         time_features = time_features_from_frequency_str(hp.get('freq'))
+        # print(f'time_features:\n{time_features}')
 
         if verbose:
             print(f'Временные лаги: ({type(lags_sequence)}): {lags_sequence}')
@@ -68,14 +41,13 @@ class ModelBuilder:
             context_length=int(prediction_len * hp.get('context_ratio')),
             # временные лаги
             lags_sequence=lags_sequence,
-            # добавляем три временных признака + при трансформации будет добавлен
-            # ещё "возраст" временного шага
+            # количество временных признака + 1 (возраст временного шага) будет добавлен при трансформации
             num_time_features=len(time_features) + 1,
             # единственный статический категориальный признак - ID серии:
             num_static_categorical_features=1,
-            # 4 возможных значения:
+            # количество каналов
             cardinality=[len(dataset)],
-            # модель будет обучать эмбеддинги размерностью 2 для каждого из 4-х возможных значений
+            # размерность эмбеддингов
             embedding_dimension=[hp.get('embedding_dim')],
 
             # transformer params:
@@ -91,3 +63,20 @@ class ModelBuilder:
 if __name__ == '__main__':
     os.chdir('..')
     logger.setup(level=logger.DEBUG, layout='debug')
+
+    from workplan.hyperparameters import Hyperparameters
+    from workplan.genetic import Bot
+
+    hp = Hyperparameters()
+    bot = Bot(hp)
+    values, bot_hash = hp.generate(mode='default', hashes=[])
+    bot.activate(values, bot_hash)
+
+    print(f'prediction_len: {bot.get("prediction_len")}')
+    print(f'freq: {bot.get("freq")}')
+    print(f'context_ratio: {bot.get("context_ratio")}')
+
+    dataset = [tmp for tmp in range(10)]
+    model = ModelBuilder(dataset, bot)
+
+    print(f'model config:\n{model.config}')

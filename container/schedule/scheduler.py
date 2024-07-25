@@ -7,9 +7,15 @@ import numpy as np
 import collections
 import matplotlib.pyplot as plt
 from matplotlib_inline.config import InlineBackend
-from lib.dataloader import DataLoader, get_month_layout, MODALITIES, SCHEDULE_TYPES
-from common.db import DB, Transaction
+
+from schedule.dataloader import DataLoader, get_month_layout, MODALITIES, SCHEDULE_TYPES
+from settings import DB_VERSION
 from common.logger import Logger
+if DB_VERSION == 'PG':
+    from common.db import DB
+else:
+    from common.dblite import DB
+from common.db import Transaction  # TODO: сделать это для SQLLite + save_bot
 
 logger = Logger(__name__)
 InlineBackend.figure_format = 'retina'
@@ -43,16 +49,6 @@ class Container:
         self.scores = np.array([])
         self.generation = None
         self.gen = np.random.default_rng()
-
-    # def append(self, bots, bots_data=None, source=None, start_id=0, generation=None):
-    #     self.bots = np.vstack([self.bots, bots]) if self.bots.size else bots
-    #     if generation is not None:
-    #         self.generation = generation
-    #     if bots_data is None:
-    #         ids = self._get_ids(bots.shape[0], start_id)
-    #         bots_data = np.array([{'id': bot_id, 'source': source} for bot_id in ids])
-    #
-    #     self.bots_data = np.hstack([self.bots_data, bots_data]) if self.bots.size else bots_data
 
     def insert(self, bots, bots_data=None, scores=None, index=None, source=None, start_id=0, generation=None):
 
@@ -186,7 +182,9 @@ class Scheduler:
         self.n_survived = n_survived
         self.mode = mode
         self.n_mods = len(MODALITIES)
-        self.db_schema = 'test' if mode == 'test' else 'roentgen'
+        self.db_schema = None
+        if DB_VERSION == 'PG':
+            self.db_schema = 'test' if mode == 'test' else 'roentgen'
         self.dataloader = DataLoader(self.db_schema)
 
         # получаем таблицу врачей
@@ -205,7 +203,8 @@ class Scheduler:
 
         # считываем план на текущий месяц по дням, врачам и модальностям (в секундах)
         day_plan_df = self.dataloader.get_day_plan(plan_version, month_start, with_ce=False)
-        # print(day_plan_df.iloc[0])
+        # pd.set_option('display.expand_frame_repr', False)
+        # print(day_plan_df[day_plan_df['day_index'] >= 29].iloc[:20])
         day_plan_df = day_plan_df[day_plan_df['month'] == month_start.month]
         row_index = {mod: i for i, mod in enumerate(MODALITIES)}
         day_plan_df = day_plan_df.pivot(
@@ -220,6 +219,7 @@ class Scheduler:
 
         # получаем желаемый график работы (базовое расписание)
         base_schedule = self.dataloader.get_schedule('base', month_start, data_layer='day')
+        # print(base_schedule.iloc[:20])
         self.v_base_avail = base_schedule \
             .pivot(index=['doctor_id'], columns=['day_index'], values=['availability']) \
             .to_numpy(dtype=np.int32, copy=True)[np.newaxis, :, np.newaxis, :]
@@ -297,9 +297,9 @@ class Scheduler:
         v_random_mod_index = self._generate_doctors_mods(v_bot.shape, mod_weights)
         # print(f'v_random_mod_index: {v_random_mod_index.shape}')
         # TODO: отладка
-        unique, counts = np.unique(v_random_mod_index, return_counts=True)
+        # unique, counts = np.unique(v_random_mod_index, return_counts=True)
         # print(f'unique: {unique}')
-        print(f'[populate] mods: {counts / counts.sum()}')
+        # print(f'[populate] mods: {counts / counts.sum()}')
         # df = pd.DataFrame(v_random_mod_index)
         v_random_mod_index = v_random_mod_index.transpose((0, 1, 3, 2)).reshape((-1,))
         # v_bot
@@ -764,7 +764,10 @@ class Scheduler:
         counter = {'diff': [], 'diff_minus': [], 'diff_plus': [], 'diff_weighted': []}
         # TODO: тест
         if self.mode != 'test':
-            self.v_plan[:, :, 2] *= 1.43
+            # self.v_plan[:, :, 2] *= 1.43 # rg
+            self.v_plan[:, :, :] *= np.array(
+                [1.494735066, 1.461778652, 1.515745913, 1.554658106, 1.52702061, 2.135798727]
+            ).reshape((1, 1, -1, 1))
             pass
 
         # вектор весов модальностей, отражающий распределение работ по модальностям в плане работ
@@ -1027,7 +1030,7 @@ class Scheduler:
         # кумулятивный вектор распределения вероятностей
         v_prop = np.cumsum(np.hstack([0., mod_weights[0, 0, :, 0]]))
         v_prop[self.n_mods] = 1.01  # на случай, если random выдаст ровно единицу
-        print(f'v_prop: {v_prop}')
+        # print(f'v_prop: {v_prop}')
         random_mods = np.searchsorted(v_prop, random_mods) - 1
 
         return random_mods[:, :, np.newaxis, :]
@@ -1050,8 +1053,8 @@ if __name__ == '__main__':
         n_survived = 2
     else:
         n_generations = 30
-        population_size = 100
-        n_survived = 40
+        population_size = 10000
+        n_survived = 500
 
     main_scheduler = Scheduler(
         main_month_start,

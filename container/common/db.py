@@ -6,7 +6,7 @@ import json
 import os
 from common.updater import Updater
 from common.logger import Logger
-from settings import PROJECT_FOLDER, CREDENTIALS_FILE
+from settings import CREDENTIALS_FILE
 
 """
 TODO: что-то сделать с сообщением о входящих подключениях
@@ -70,7 +70,7 @@ class DB:
         self.tunnel = None
         self.connection = None
         self.cursor = None
-        with open(PROJECT_FOLDER + CREDENTIALS_FILE, 'r') as fp:
+        with open(CREDENTIALS_FILE, 'r') as fp:
             self.credentials: dict = json.load(fp)
 
         if db_schema:

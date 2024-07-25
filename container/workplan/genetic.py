@@ -18,6 +18,9 @@ from modelbuilder import ModelBuilder
 from show import Show
 from dataloaders import create_train_dataloader, create_test_dataloader
 from schedulers import WarmAndDecayScheduler
+from common.logger import Logger
+
+logger = Logger(__name__)
 
 
 def train(model, config, dataloader, hp, mode='genetic'):
@@ -104,7 +107,7 @@ def train(model, config, dataloader, hp, mode='genetic'):
     return model, losses, device
 
 
-def inference(model, dataloader, config, device, verbose=0):
+def inference(model, dataloader, config, device):
     """
     Реализует инференс модели с помощью метода generate.
     Возвращает вероятностый прогнозный вектор формы:
@@ -131,22 +134,26 @@ def inference(model, dataloader, config, device, verbose=0):
         forecasts.append(outputs.sequences.cpu().numpy())
 
     forecasts = np.vstack(forecasts)
-    if verbose:
-        print(f'Обработано батчей тестовой выборки: {len(forecasts)}')
-        print(f'Форма вероятностного вектора прогноза: {forecasts.shape}')
+    logger.debug(f'Обработано батчей тестовой выборки: {len(forecasts)}')
+    logger.debug(f'Форма вероятностного вектора прогноза: {forecasts.shape}')
 
     return forecasts
 
 
-def metrics(dataset, forecasts, hp, verbose=0):
-    """Возвращет метрики MASE/sMAPE
+def metrics(dataset, forecasts, bot):
     """
-    prediction_len = hp.get('prediction_len')
-    freq = hp.get('freq')
+    Возвращет метрики MASE/sMAPE.
+
+    :param dataset: тестовый датасет, содержащий все последовательности целиком
+    :param forecasts: прогноз, полученный методом inference
+    :param bot: тестовый датасет, содержащий все последовательности целиком
+    """
+    prediction_len = bot.get('prediction_len')
+    freq = bot.get('freq')
     mase_metric = load("evaluate-metric/mase")
     smape_metric = load("evaluate-metric/smape")
 
-    # возмём медианное по батчам значение прогноза: (4, 100, 30) -> (4, 30)
+    # возмём медианное по батчам значение прогноза: (channels, n_batches, prediction_len) -> (channels, prediction_len)
     forecast_median = np.median(forecasts, axis=1)
 
     mase_metrics = []
@@ -172,9 +179,8 @@ def metrics(dataset, forecasts, hp, verbose=0):
         )
         smape_metrics.append(smape["smape"])
 
-    if verbose:
-        print(f"MASE (средняя): {np.mean(mase_metrics)}")
-        print(f"sMAPE (средняя): {np.mean(smape_metrics)}")
+    logger.debug(f"MASE (средняя): {np.mean(mase_metrics)}")
+    logger.debug(f"sMAPE (средняя): {np.mean(smape_metrics)}")
 
     # посмотрим на графики метрик MASE/sMAPE
     # Show.metrics(mase_metrics, smape_metrics, pds.CHANNEL_NAMES)
@@ -243,6 +249,29 @@ class Bot:
         """Сохраняет состояние бота на диск"""
         fname = self.bots_folder + self.filename() + '.jd'
         state = self.get_state()
+
+        def show_vals(dct):
+            for key, value in dct.items():
+                # if isinstance(value, int):
+                #     print(key, value)
+                print(key, value, type(value))
+                if isinstance(value, dict):
+                    show_vals(value)
+
+        def convert(src_dict):
+            # TODO: разобраться и сделать, чтобы np.int64 и np.float64 не попадали в данные бота,
+            #       иначе не сериализуется
+            for key, value in src_dict.items():
+                if isinstance(value, np.int64):
+                    src_dict[key] = int(value)
+                if isinstance(value, np.float64):
+                    src_dict[key] = float(value)
+                if isinstance(value, dict):
+                    convert(value)
+
+        convert(state)
+        # show_vals(state)
+
         with open(fname, "w") as fp:
             json.dump(state, fp)
         return fname
@@ -250,7 +279,7 @@ class Bot:
     def get_state(self):
         """Возвращает состояние бота для сохранения на диск"""
         return {
-            'bot_id': self.id,
+            'id': self.id,
             'shift': self.shift,
             'index': self.index,
             'namespace': self.namespace,
@@ -298,31 +327,30 @@ class Researcher:
     Класс исследователя, который создаёт и испытывает популяции ботов
     с различными гиперпараметрами, включая параметры нарезки входных данных
     на последовательности.
-    Args:
-        train_ds: обучающий датасет (HuggingFace Dataset);
-        test_ds: тестовый датасет (HuggingFace Dataset);
-        hp: гиперпараметры (инстанс HyperParameters);
-        channel_names: список имён каналов данных;
-        show_graphs: флаг вывода графиков в процессе обучения ботов;
-        mode: режим работы:
-            genetic - генерация и обучение ботов генетическим алгоритмом;
-            test - режим тестирования, в котором создаётся
-                только одна популяция с единственным ботом и гиперпараметрами
-                по-умолчанию; выполняется всего  2 эпохи обучения;
-            best - обучение лучших ботов, считанных с диска;
-                остальные боты при этом удаляются из памяти.
-        train: флаг выполнения обучения, иначе результаты обучения будут
-            сгенерированы случайным образом (для быстрой проверки работы
-            генетического алгоритма);
-        save_bots: флаг сохранения ботов на диск;
-        verbose: признак вывода отладочных сообщений.
+
+    :param train_ds: обучающий датасет (HuggingFace Dataset);
+    :param test_ds: тестовый датасет (HuggingFace Dataset);
+    :param hp: гиперпараметры (инстанс HyperParameters);
+    :param channel_names: список имён каналов данных;
+    :param show_graphs: флаг вывода графиков в процессе обучения ботов;
+    :param mode: режим работы:
+        genetic - генерация и обучение ботов генетическим алгоритмом;
+        test - режим тестирования, в котором создаётся
+            только одна популяция с единственным ботом и гиперпараметрами
+            по-умолчанию; выполняется всего  2 эпохи обучения;
+        best - обучение лучших ботов, считанных с диска;
+            остальные боты при этом удаляются из памяти.
+    :param train: флаг выполнения обучения, иначе результаты обучения будут
+        сгенерированы случайным образом (для быстрой проверки работы
+        генетического алгоритма);
+    :param save_bots: флаг сохранения ботов на диск;
     """
 
     def __init__(self, train_ds, test_ds, hp,
                  channel_names,
                  mode='genetic',
                  show_graphs=False,
-                 train=True, save_bots=True, verbose=0
+                 train=True, save_bots=True
                  ):
         self.train_ds = train_ds
         self.test_ds = test_ds
@@ -332,11 +360,10 @@ class Researcher:
         self.mode = mode
         self.train = train
         self.save = save_bots
-        self.verbose = verbose
         # папка проекта, в которую будут сохраняться данные
         self.bots_folder = hp.get('bots_folder')
         # подключаем/создаём папку
-        self._connect()
+        # self._connect()
 
         # словарь для хранения всех ботов по их ID
         self.bots = {}
@@ -483,11 +510,11 @@ class Researcher:
                         batch_size=64,
                     )
                     # print('После формирования тестового даталоадера')
-                    forecasts = inference(model, test_dataloader, config, device, verbose=0)
+                    forecasts = inference(model, test_dataloader, config, device)
                     # print('После инференса')
 
                     # считаем и оцениваем метрики MASE/sMAPE
-                    mase_metrics, smape_metrics = metrics(self.test_ds, forecasts, bot, verbose=0)
+                    mase_metrics, smape_metrics = metrics(self.test_ds, forecasts, bot)
                     # print('После расчёта метрик')
                 else:
                     # тестовые значения
@@ -514,17 +541,13 @@ class Researcher:
 
                 # выводим статистику бота
                 if self.show_graphs:
-                    channel_index = 3  # channel: close - цена закрытия
-                    Show.statistic(bot.metrics, self.test_ds, forecasts, bot,
+                    Show.dashboard(bot.metrics, self.test_ds, forecasts, bot,
                                    self.channel_names,
-                                   ts_index=channel_index,
                                    total_periods=4,
                                    name=str(bot)
                                    )
                 # освобождаем память
-                model = None
-                train_dataloader = None
-                test_dataloader = None
+                del model, train_dataloader, test_dataloader
                 torch.cuda.empty_cache()
                 gc.collect()
 
@@ -588,7 +611,7 @@ class Researcher:
 
         return bot
 
-    def get_best_bots(self, verbose=1):
+    def get_best_bots(self):
         """Определяет и возвращает словарь лучших ботов
         """
         # количество отбираемых ботов равно количеству выживших
@@ -599,10 +622,9 @@ class Researcher:
         best_pairs = sorted(scores, key=lambda t: t[1])[:number]
         # возвращаем словарь лучших ботов
         best_bots = {t[0]: self.bots[t[0]] for t in best_pairs}
-        if verbose:
-            print('Лучшие боты:')
-            for bot in best_bots.values():
-                print(repr(bot))
+        logger.info('Лучшие боты:')
+        for bot in best_bots.values():
+            logger.info(repr(bot))
         return best_bots
 
     def populate(self):
@@ -706,14 +728,14 @@ class Researcher:
             assert list(bots.keys())[-1] == max_id
         return bots, max_id
 
-    def _connect(self):
-        """Определяет папку для хранения/чтения ботов"""
-        # если папка на гугл-диске
-        if 'MyDrive' in self.bots_folder:
-            if not os.path.exists(self.bots_folder):
-                drive.mount('/content/drive/')
-        elif not os.path.exists(self.bots_folder):
-            os.mkdir(self.bots_folder)
+    # def _connect(self):
+    #     """Определяет папку для хранения/чтения ботов"""
+    #     # если папка на гугл-диске
+    #     if 'MyDrive' in self.bots_folder:
+    #         if not os.path.exists(self.bots_folder):
+    #             drive.mount('/content/drive/')
+    #     elif not os.path.exists(self.bots_folder):
+    #         os.mkdir(self.bots_folder)
 
     def filepath(self):
         """Возвращает шаблон пути для считывания ботов с диска"""

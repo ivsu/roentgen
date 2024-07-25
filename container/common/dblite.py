@@ -43,13 +43,6 @@ class DB:
         self.connection = None
         self.cursor = None
 
-        # if db_schema:
-        #     self.schema = db_schema
-        # elif 'PG_SCHEMA' in self.credentials.keys():
-        #     self.schema = self.credentials['PG_SCHEMA']
-        # else:
-        #     self.schema = 'public'
-
     def connect(self):
         """Creates DB session"""
         try:

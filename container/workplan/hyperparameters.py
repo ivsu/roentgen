@@ -3,10 +3,11 @@ import hashlib
 import numpy as np
 import os
 from common.logger import Logger
+from settings import BOTS_FOLDER
 
 logger = Logger(__name__)
 
-PROJECT_FOLDER = '/content/drive/MyDrive/university/roentgen/'
+# PROJECT_FOLDER = '/content/drive/MyDrive/university/roentgen/'
 
 
 class Hyperparameters:
@@ -23,7 +24,7 @@ class Hyperparameters:
             # количество эпох на прогрев модели
             warmup_epochs=5,
             # папка для хранения ботов
-            bots_folder=PROJECT_FOLDER + 'bots/',
+            bots_folder=BOTS_FOLDER,
             # количество итераций поиска (смены популяций ботов)
             # TODO: заменить на критерий окончания поиска
             n_search=10,
@@ -35,7 +36,7 @@ class Hyperparameters:
             n_survived=5,
             # количество случайных ботов в каждой новой популяции
             n_random=5,
-            )
+        )
         # пространство динамических гиперпараметров, которые меняются
         # в процессе работы генетического алгоритма
         self.space = dict(
@@ -70,13 +71,12 @@ class Hyperparameters:
     def generate(self, mode, hashes, current_values=None):
         """
         Генерирует набор значений гиперпараметров в заданном режиме.
-        Args:
-            mode: режим генерации: default, random, data_nearest
-            hashes: список хэшей имеющихся гиперпараметров для проверки
+
+        :param mode: режим генерации: default, random, data_nearest
+        :param hashes: список хэшей имеющихся гиперпараметров для проверки
                 новых ботов на уникальность
-            current_values: имеющийся набор значений для режима data_nearest
-        Returns:
-            словарь гиперпараметров и их хэш
+        :param current_values: имеющийся набор значений для режима data_nearest
+        :returns: словарь гиперпараметров и их хэш
         """
         # сначала копируем значения фиксированных параметров
         values = self.fixed.copy()
@@ -120,12 +120,12 @@ class Hyperparameters:
                     mask = self.get_square_mask(m_shape, current_pos, distance)
                     m_lookup = matrix * mask
                     # получаем индексы ненулевых значений по каждому измерению
-                    nonzero = np.asarray(np.nonzero(m_lookup))
+                    nonzero = np.asarray(np.nonzero(m_lookup), dtype=np.int32)
                     # если все значения кончились, расширим диапазон поиска
                     if nonzero.shape[1] == 0:
                         continue
                     # получим случайный набор индексов
-                    rnd_index = self.gen.integers(0, nonzero[0].size)
+                    rnd_index = self.gen.integers(0, nonzero[0].size, dtype=np.int32)
                     pos = nonzero[:, rnd_index]
                     # print(f'Изменение индексов ближайшего значения в параметрах данных: {current_pos} -> {pos}')
 
