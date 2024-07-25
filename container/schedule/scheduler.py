@@ -11,11 +11,12 @@ from matplotlib_inline.config import InlineBackend
 from schedule.dataloader import DataLoader, get_month_layout, MODALITIES, SCHEDULE_TYPES
 from settings import DB_VERSION
 from common.logger import Logger
+
 if DB_VERSION == 'PG':
     from common.db import DB
 else:
     from common.dblite import DB
-from common.db import Transaction  # TODO: сделать это для SQLLite + save_bot
+# from common.db import Transaction  # TODO: сделать это для SQLLite + save_bot
 
 logger = Logger(__name__)
 InlineBackend.figure_format = 'retina'
@@ -57,7 +58,8 @@ class Container:
 
         if index is None:
             index = len(self.bots)
-        assert index <= len(self.bots), f'Переданный индекс превышает количество имеющихся ботов: {index} / {len(self.bots)}'
+        assert index <= len(
+            self.bots), f'Переданный индекс превышает количество имеющихся ботов: {index} / {len(self.bots)}'
 
         n_exists = len(self.bots)
 
@@ -193,7 +195,7 @@ class Scheduler:
         self.doctor_df = doctor_df
         self.n_doctors = len(doctor_df)
         # self.v_doctor = doctor_df['schedule_type']
-        self.time_rate = doctor_df['time_rate'].to_numpy(dtype=np.float32, copy=True)\
+        self.time_rate = doctor_df['time_rate'].to_numpy(dtype=np.float32, copy=True) \
             [np.newaxis, :, np.newaxis, np.newaxis]
 
         # получаем вектор весов модальностей врачей: [1, num_doctors, self.n_mods, 1]
@@ -221,8 +223,8 @@ class Scheduler:
         base_schedule = self.dataloader.get_schedule('base', month_start, data_layer='day')
         # print(base_schedule.iloc[:20])
         self.v_base_avail = base_schedule \
-            .pivot(index=['doctor_id'], columns=['day_index'], values=['availability']) \
-            .to_numpy(dtype=np.int32, copy=True)[np.newaxis, :, np.newaxis, :]
+                                .pivot(index=['doctor_id'], columns=['day_index'], values=['availability']) \
+                                .to_numpy(dtype=np.int32, copy=True)[np.newaxis, :, np.newaxis, :]
         # обрезаем до количества дней в плане (актуально для режима test)
         self.v_base_avail = self.v_base_avail[..., :self.n_days]
 
@@ -287,7 +289,8 @@ class Scheduler:
 
             # заполняем расписания только с текущим видом графика, добавляем рабочее время
             work_days[:, current_schedule_index, :] = workdate_template[random_schedule_index] \
-                .reshape(n_bots, index_len, self.n_days).astype(np.float32) * time_volume
+                                                          .reshape(n_bots, index_len, self.n_days).astype(
+                np.float32) * time_volume
             # print(f'work_days sample:\n{work_days[0, :10, :]}')
 
         # print(f'work_days {work_days.shape}')
@@ -309,7 +312,7 @@ class Scheduler:
         # advanced integer indexing
         v_bot_mod_mask[np.arange(v_bot_mod_mask.shape[0]), v_random_mod_index] = 1.
         v_bot_mod_mask = v_bot_mod_mask \
-            .reshape((v_bot.shape[0], v_bot.shape[1], v_bot.shape[3], self.n_mods))\
+            .reshape((v_bot.shape[0], v_bot.shape[1], v_bot.shape[3], self.n_mods)) \
             .transpose((0, 1, 3, 2))
         # print(f'v_bot_mod_mask: {v_bot_mod_mask.shape}')
         # print('mod_mask:', mod_mask.shape)
@@ -484,7 +487,7 @@ class Scheduler:
         # extra_mod_k = 0.9999  # снижение оценки за работы не по основной модальности
         # conflict_with_base_k = 0.9999  # снижение оценки за несовпадение с базовым графиком
         max_extra_mod_k = 0.99  # максимальный штраф за работы по неосновной модальности
-        max_base_mismatch_k = 0.99 # максимальный штраф за несовпадение с базовым графиком
+        max_base_mismatch_k = 0.99  # максимальный штраф за несовпадение с базовым графиком
 
         day_works_by_mod = np.sum(v_bot, axis=1, keepdims=True)  # -> [:, 1, :, :]
         diff = day_works_by_mod - self.v_plan
@@ -989,11 +992,14 @@ class Scheduler:
             cursor.execute(q)
             cursor.execute(q_day)
 
-        t = Transaction(db)
-        t.set('upsert_with_cursor', df, 'doctor_availability', unique=['uid'])
-        t.set('upsert_with_cursor', df_day, 'doctor_day_plan',
-              unique=['version', 'doctor_availability', 'modality', 'contrast_enhancement'])
-        t.call()
+        # t = Transaction(db)
+        # t.set('upsert_with_cursor', df, 'doctor_availability', unique=['uid'])
+        # t.set('upsert_with_cursor', df_day, 'doctor_day_plan',
+        #       unique=['version', 'doctor_availability', 'modality', 'contrast_enhancement'])
+        # t.call()
+        db.upsert(df, 'doctor_availability', unique=['uid'])
+        db.upsert(df_day, 'doctor_day_plan',
+                  unique=['version', 'doctor_availability', 'modality', 'contrast_enhancement'])
         db.close()
         logger.info('Данные записаны.')
 
@@ -1053,8 +1059,8 @@ if __name__ == '__main__':
         n_survived = 2
     else:
         n_generations = 30
-        population_size = 10000
-        n_survived = 500
+        population_size = 100
+        n_survived = 50
 
     main_scheduler = Scheduler(
         main_month_start,
