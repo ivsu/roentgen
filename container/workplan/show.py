@@ -449,9 +449,9 @@ class Show:
             filter_buttons.append(dict(
                 args=[dict(
                     y=[
-                        np.median(forecasts[i], axis=0),
                         forecasts[i].mean(axis=0) + forecasts[i].std(axis=0),
                         forecasts[i].mean(axis=0) - forecasts[i].std(axis=0),
+                        np.median(forecasts[i], axis=0),
                         dataset[i]["target"][-total_periods * prediction_len:],
                     ],
                     # selector=dict(name='Прогноз'),
