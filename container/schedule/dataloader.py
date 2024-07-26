@@ -160,7 +160,7 @@ class DataLoader:
                     FROM {self.schema_placeholder}work_plan_summary as p
                     LEFT JOIN {self.schema_placeholder}time_norm as n
                         ON n.modality = p.modality AND n.contrast_enhancement = p.contrast_enhancement
-                    LEFT JOIN (SELECT column1 as weekday FROM (
+                    FULL JOIN (SELECT column1 as weekday FROM (
                             VALUES (1), (2), (3), (4), (5), (6), (7)
                             ) as val) as d
                         ON true
@@ -197,13 +197,12 @@ class DataLoader:
                         {contrast_enhancement}
                         sum(p.amount / 7.) as work_amount,
                         sum(p.amount / n.max_value * 8 / 7) as time_volume
-                    FROM {self.schema_placeholder}work_plan_summary as p
-                    LEFT JOIN {self.schema_placeholder}time_norm as n
-                        ON n.modality = p.modality AND n.contrast_enhancement = p.contrast_enhancement
-                    FULL JOIN (SELECT column1 as weekday FROM (
+                    FROM {self.schema_placeholder}work_plan_summary as p,
+                        (SELECT column1 as weekday FROM (
                             VALUES (1), (2), (3), (4), (5), (6), (7)
                             ) as val) as d
-                        ON true
+                    LEFT JOIN {self.schema_placeholder}time_norm as n
+                        ON n.modality = p.modality AND n.contrast_enhancement = p.contrast_enhancement
                     WHERE
                         p.version = '{version}' and p.year = {year} 
                         and p.week >= {month_start_week} and p.week <= {month_end_week}
