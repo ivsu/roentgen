@@ -532,7 +532,7 @@ class Researcher:
                     'mase': mase_metrics,
                     'smape': smape_metrics,
                 }
-                # оценка бота - среднее значение ошибки sMAPE по 4-м временным рядам
+                # оценка бота - среднее значение ошибки sMAPE по всем временным рядам
                 bot.score = np.array(smape_metrics).mean()
 
                 # сохраняем бота на диск

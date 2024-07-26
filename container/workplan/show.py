@@ -485,6 +485,7 @@ class Show:
         fig.update_yaxes(title_text="Количество исследований", title_standoff=0, row=1, col=3)
 
         fig.show()
+
     @staticmethod
     def indicators(hp, params, titles):
         fig = go.Figure()
@@ -506,9 +507,15 @@ class Show:
         fig = None
         gc.collect()
 
-    def test(self, figure=None, row=1, col=1):
+    @staticmethod
+    def test(figure=None, row=1, col=1):
 
         fig = figure if figure is not None else go.Figure()
+
+        fig = make_subplots(
+            rows=1, cols=2,
+            subplot_titles=['Тест', 'empty']
+        )
 
         gen = np.random.default_rng()
         data = gen.integers(0, 100, size=(100,))
@@ -518,9 +525,10 @@ class Show:
             go.Scatter(
                 x=x, y=data,
                 mode='lines',
-                line=dict(width=0.5, color='rgba(192, 192, 192, 1)'),
                 showlegend=True,
+                name='random'
             ),
             row=row, col=col
         )
-        return fig
+        # fig.layout.annotations[0].update(text="Stackoverflow")
+        fig.show()
