@@ -37,6 +37,16 @@ class Hyperparameters:
             # количество случайных ботов в каждой новой популяции
             n_random=5,
         )
+        # дополнительные признаки - временные лаги - на сколько недель мы "смотрим назад"
+        self.lags_sequencies = [
+            [1, 2, 3, 4, 5, 51, 52, 53, 54, 103, 104, 105, 106, 107],
+            [1, 2, 3, 4, 5, 52, 53, 104, 105, 106],
+            [52, 53, 104, 105, 106],
+            [51, 52, 53, 54, 103, 104, 105, 106, 107],
+            [1, 2, 3, 4, 5],
+            [],
+            [1, 2, 3, 4, 5, 6, 7, 8, 12, 51, 52, 53, 103, 104]
+        ]
         # пространство динамических гиперпараметров, которые меняются
         # в процессе работы генетического алгоритма
         self.space = dict(
@@ -46,6 +56,10 @@ class Hyperparameters:
             num_batches_per_epoch=[40, 60, 80, 100, 120, 140, 160],
             # соотношение длины контекста к длине предсказываемой последовательности
             context_ratio=[1.5, 2., 2.5, 3., 3.5, 4.0],
+            # дополнительные признаки - временные лаги - на сколько недель мы "смотрим назад"
+            lags_sequence=[s for s in range(len(self.lags_sequencies))],
+            # функции применяемые в качестве временных фичей
+            time_features_function=[0, 1, 2],  # [day_of_month, week_of_year, all_together]
             # размерность эмбеддингов трансформера
             embedding_dim=[1, 2, 4, 8],
             # параметры трансформера:
@@ -54,10 +68,11 @@ class Hyperparameters:
             d_model=[8, 16, 32, 64],
         )
         # индексы гиперпараметров по умолчанию
-        self.defaults = [3, 3, 1, 1, 1, 1, 2]
+        self.defaults = [3, 3, 1, 4, 0, 1, 1, 1, 1]
         assert len(self.space) == len(self.defaults)
         # ключи параметров данных (для изменения только параметров данных у лучших ботов)
-        self.data_keys = ['train_batch_size', 'num_batches_per_epoch', 'context_ratio']
+        self.data_keys = ['train_batch_size', 'num_batches_per_epoch', 'context_ratio',
+                          'lags_sequence', 'time_features_function']
         # создаём генератор случайных чисел
         self.gen = np.random.default_rng()
 
@@ -108,7 +123,8 @@ class Hyperparameters:
             if mode == 'random':
                 for key in self.space:
                     # values[key] = random.choice(self.space[key])
-                    values[key] = self.gen.choice(self.space[key])
+                    value_index = self.gen.integers(0, len(self.space[key]))
+                    values[key] = self.space[key][value_index]
 
             # инициализуем значения параметров данных к ближайшим значениям
             elif mode == 'data_nearest':

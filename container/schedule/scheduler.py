@@ -1043,7 +1043,7 @@ class Scheduler:
 
 
 if __name__ == '__main__':
-    os.chdir('..')
+
     logger.setup(level=logger.INFO, layout='debug')
     np.set_printoptions(edgeitems=30, linewidth=100000,
                         formatter=dict(float=lambda x: f'{x:.5f}'))

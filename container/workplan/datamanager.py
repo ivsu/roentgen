@@ -121,51 +121,9 @@ class DataManager:
         self.prediction_len = prediction_len
         # загружаем данные в датафрейм
         self.read()
-        # self._rebuild(freq)
         # переводим индекс в pd.Period
         self.df.index = self.df.index.to_period(freq)
         # print(f'self.df:\n{self.df}')
-
-    def _rebuild(self, freq):
-        """
-        Группирует исходный датафрейм до заданной частоты,
-        добавляет индекс data (PeriodIndex), который равномерно следует
-        с заданным временным шагом, - при этом также образуются значения NaN,
-        для которых при определении трансформации в дальнейшем формируется маска,
-        по которой декодер не формирует значения функции потерь для пустых значений.
-        """
-        # создаём колонку с заданным периодом (pd.Period)
-        self.df['date'] = self.df['datetime'].dt.to_period(freq)
-        logger.info(f'Создана колонка периода "date", тип: {self.df["date"].dtype}')
-        # print(self.df.head())
-
-        # группируем признаки по заданной частоте
-        self.df = self.df.groupby('date').agg(
-            open=pd.NamedAgg('open', 'first'),
-            high=pd.NamedAgg('high', 'max'),
-            low=pd.NamedAgg('low', 'min'),
-            close=pd.NamedAgg('close', 'last')
-        )
-        logger.info(f'Данные сгруппированы по периоду: {freq}, строк: {len(self.df)}\nHEAD:\n{self.df.head()}')
-
-        # формируем полный RangeIndex дат
-        full_range = pd.period_range(
-            self.df.index.min().to_timestamp(),
-            self.df.index.max().to_timestamp(),
-            freq=freq,
-            name='date'
-        )
-        logger.info(f'\nСформирован полный диапазон дат, всего шагов: {len(full_range)}')
-
-        # готовим пустой датафрейм с полным Period-индексом
-        range_df = pd.DataFrame(index=full_range)
-        # присоединяем данные
-        self.df = range_df.join(self.df)
-        logger.info(f'Диапазон значений: {len(self.df)}')
-        logger.info(f'HEAD:\n{self.df.head(10)}')
-
-        del range_df, full_range
-        gc.collect()
 
     def from_generator(self, splits, split):
         """ Возвращает датасет в зависимости от аргумента split"""

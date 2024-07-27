@@ -224,14 +224,16 @@ class Bot:
 
         # список ключей изменяемых параметров
         self.changeable = [k for k in hp.space.keys()]
+        # возможные временные лаги, заданные в гиперпараметрах
+        self.lags_sequencies = hp.lags_sequencies.copy()
         # сокращённые названия параметров для печати
-        self.cuts = ['bs', 'nb', 'cr', 'emb', 'enc', 'dec', 'dm']
+        self.cuts = ['bs', 'nb', 'cr', 'ls', 'tff', 'emb', 'enc', 'dec', 'dm']
         assert len(self.cuts) == len(self.changeable)
         # имя метрики, по которой оценивается бот
         self.metric = 'sMAPE'
         # форматы вывода параметров для методов __str__, __repr__
-        self.repr_formats = ['3d', '3d', '.1f', '1d', '1d', '1d', '3d']
-        self.str_formats = ['', '', '.1f', '', '', '', '']
+        self.repr_formats = ['3d', '3d', '.1f', '1d', '1d', '1d', '1d', '1d', '3d']
+        self.str_formats = ['', '', '.1f', '', '', '', '', '', '']
 
     def activate(self, values, bot_hash):
         """Инициализирует значения гиперпараметров бота и сохраняет хэш их значений"""
@@ -243,7 +245,11 @@ class Bot:
         if key in self.values:
             return self.values[key]
         else:
-            raise KeyError(f'Не задан гиперпараметр с ключом: {key}')
+            raise KeyError(f'Не задан гиперпараметр с ключом: {key}.')
+
+    def get_lags_sequence(self):
+        index = self.get('lags_sequence')
+        return self.lags_sequencies[index]
 
     def save(self):
         """Сохраняет состояние бота на диск"""
@@ -487,6 +493,7 @@ class Researcher:
                 # получаем модель
                 mb = ModelBuilder(self.train_ds, bot)
                 model, config = mb.get()
+                time_features = mb.get_time_features()
                 # print(f'model distribution_output: {config.distribution_output}')
 
                 if self.train:
@@ -497,6 +504,7 @@ class Researcher:
                         data=self.train_ds,
                         batch_size=bot.get('train_batch_size'),
                         num_batches_per_epoch=bot.get('num_batches_per_epoch'),
+                        time_features=time_features,
                     )
                     # обучаем модель
                     model, losses, device = train(model, config, train_dataloader, bot, self.mode)
@@ -508,6 +516,7 @@ class Researcher:
                         freq=bot.get('freq'),
                         data=self.test_ds,
                         batch_size=64,
+                        time_features=time_features,
                     )
                     # print('После формирования тестового даталоадера')
                     forecasts = inference(model, test_dataloader, config, device)
@@ -719,6 +728,9 @@ class Researcher:
                     max_id = bot.id
         if len(filelist) > 0:
             print(f'Считано ботов с диска в пространстве имён "{namespace}": {len(filelist)}')
+            for bot in bots.values():
+                print(repr(bot))
+
         else:
             print(f'Ботов на диске в пространстве имён "{namespace}" не найдено.')
 

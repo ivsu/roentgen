@@ -7,6 +7,7 @@ from gluonts.time_feature import (
     # функции фреймворка GluonTS для формирования дополнительных признаков временного ряда
     time_features_from_frequency_str,
     # get_lags_for_frequency,
+    # week_of_year
 )
 
 from common.logger import Logger
@@ -15,30 +16,32 @@ logger = Logger(__name__)
 
 
 class ModelBuilder:
-    def __init__(self, dataset, hp, verbose=0):
-        # создаём дополнительные признаки - временные лаги - на сколько дней мы "смотрим назад"
-        lags_sequence = [
-            1, 2, 3, 4, 5,      # предшествующие недели
-            51, 52, 53, 54,  # год назад
-            103, 104, 105, 106, 107  # 2 года назад
-            ]
+    def __init__(self, dataset, bot):
+        # дополнительные признаки - временные лаги - на сколько дней мы "смотрим назад"
+        lags_sequence = bot.get_lags_sequence()
 
         # формируем дополнительные временные признаки: день недели, день месяца, день года
         # при определении трансформации к ним будет добавлен ещё один - "возраст" последовательности
-        time_features = time_features_from_frequency_str(hp.get('freq'))
+        function_index = bot.get('time_features_function')
+        time_features = time_features_from_frequency_str(bot.get('freq'))
+        # logger.debug(f'time_features:\n{time_features}')
+        assert len(time_features) == 2
+        # возьмём одну из двух функций (2 == all together)
+        if function_index < 2:
+            time_features = [time_features[function_index]]
         # print(f'time_features:\n{time_features}')
+        self.time_features = time_features
 
-        if verbose:
-            print(f'Временные лаги: ({type(lags_sequence)}): {lags_sequence}')
-            print(f'Временные признаки: ({type(time_features)}): {time_features}')
+        logger.debug(f'Временные лаги: ({type(lags_sequence)}): {lags_sequence}')
+        logger.debug(f'Временные признаки: ({type(time_features)}): {time_features}')
 
-        prediction_len = hp.get('prediction_len')
+        prediction_len = bot.get('prediction_len')
 
         self.config = TimeSeriesTransformerConfig(
             # длина предсказываемой последовательности
             prediction_length=prediction_len,
             # длина контекста:
-            context_length=int(prediction_len * hp.get('context_ratio')),
+            context_length=int(prediction_len * bot.get('context_ratio')),
             # временные лаги
             lags_sequence=lags_sequence,
             # количество временных признака + 1 (возраст временного шага) будет добавлен при трансформации
@@ -48,16 +51,19 @@ class ModelBuilder:
             # количество каналов
             cardinality=[len(dataset)],
             # размерность эмбеддингов
-            embedding_dimension=[hp.get('embedding_dim')],
+            embedding_dimension=[bot.get('embedding_dim')],
 
             # transformer params:
-            encoder_layers=hp.get('encoder_layers'),
-            decoder_layers=hp.get('decoder_layers'),
-            d_model=hp.get('d_model'),
+            encoder_layers=bot.get('encoder_layers'),
+            decoder_layers=bot.get('decoder_layers'),
+            d_model=bot.get('d_model'),
         )
 
     def get(self):
         return TimeSeriesTransformerForPrediction(self.config), self.config
+
+    def get_time_features(self):
+        return self.time_features
 
 
 if __name__ == '__main__':
@@ -72,11 +78,12 @@ if __name__ == '__main__':
     values, bot_hash = hp.generate(mode='default', hashes=[])
     bot.activate(values, bot_hash)
 
-    print(f'prediction_len: {bot.get("prediction_len")}')
-    print(f'freq: {bot.get("freq")}')
-    print(f'context_ratio: {bot.get("context_ratio")}')
+    logger.info(f'prediction_len: {bot.get("prediction_len")}')
+    logger.info(f'freq: {bot.get("freq")}')
+    logger.info(f'context_ratio: {bot.get("context_ratio")}')
 
     dataset = [tmp for tmp in range(10)]
     model = ModelBuilder(dataset, bot)
 
-    print(f'model config:\n{model.config}')
+    logger.debug(f'model config:\n{model.config}')
+

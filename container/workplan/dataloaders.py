@@ -35,7 +35,7 @@ from gluonts.itertools import Cached, Cyclic
 from gluonts.dataset.loader import as_stacked_batches
 
 
-def create_transformation(freq: str, config: PretrainedConfig) -> Transformation:
+def create_transformation(freq: str, config: PretrainedConfig, time_features: list) -> Transformation:
     # определяем удаляемые поля
     remove_field_names = []
     if config.num_static_real_features == 0:
@@ -67,7 +67,7 @@ def create_transformation(freq: str, config: PretrainedConfig) -> Transformation
             field=FieldName.TARGET,
             # дополнительное измерение в случае многомерности (Multivariate):
             expected_ndim=1 if config.input_size == 1 else 2
-        ),
+            ),
             # Шаг 3: заполняем значения NaN в target нулями и возвращаем маску
             # для наблюдаемых значений (true для наблюдаемых значений, false для Nan);
             # декодер использует эту маску, исключая расчёт потерь на ненаблюдаемых значениях;
@@ -83,7 +83,8 @@ def create_transformation(freq: str, config: PretrainedConfig) -> Transformation
                 start_field=FieldName.START,
                 target_field=FieldName.TARGET,
                 output_field=FieldName.FEAT_TIME,
-                time_features=time_features_from_frequency_str(freq),
+                # time_features=time_features_from_frequency_str(freq),
+                time_features=time_features,
                 pred_length=config.prediction_length,
             ),
             # Шаг 5: добавляем дополнительный временной признак - возраст,
@@ -159,6 +160,7 @@ def create_train_dataloader(
         num_batches_per_epoch: int,
         shuffle_buffer_length: Optional[int] = None,
         cache_data: bool = True,
+        time_features: list = None,
         **kwargs,
 ) -> Iterable:
     """ Загружает, трансформирует и нарезает на батчи тренировочную выборку.
@@ -180,7 +182,7 @@ def create_train_dataloader(
         "future_observed_mask",
     ]
 
-    transformation = create_transformation(freq, config)
+    transformation = create_transformation(freq, config, time_features)
     transformed_data = transformation.apply(data, is_train=True)
     if cache_data:
         transformed_data = Cached(transformed_data)
@@ -212,6 +214,7 @@ def create_test_dataloader(
         freq,
         data,
         batch_size: int,
+        time_features: list,
         **kwargs,
 ):
     """ Загружает, трансформирует и нарезает на батчи тестовую выборку.
@@ -228,7 +231,7 @@ def create_test_dataloader(
     if config.num_static_real_features > 0:
         prediction_input_names.append("static_real_features")
 
-    transformation = create_transformation(freq, config)
+    transformation = create_transformation(freq, config, time_features)
     transformed_data = transformation.apply(data, is_train=False)
 
     # создаём сплиттер тестового инстанса, который будет сэмплировать последнее контекстное окно,
