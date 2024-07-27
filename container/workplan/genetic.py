@@ -412,13 +412,17 @@ class Researcher:
                     for bot in self.bots.values()
                     if bot.shift == from_shift
                     }
+                # если считанная популяция неполная
+                n_extra_bots = self.hp.get('n_bots') - len(self.population)
+                if n_extra_bots > 0:
+                    self.population = self.population | self.generate(n_extra_bots)
                 assert len(self.population) == self.hp.get('n_bots')
                 # получаем индексы обученных ботов
                 learned_indices = [
                     bot.index
                     for bot in self.population.values()
                     if bot.score
-                    ]
+                ]
                 # пробуем получить индекс следующего бота для обучения
                 if learned_indices:
                     self.first_index = max(learned_indices) + 1

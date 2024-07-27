@@ -16,13 +16,14 @@ if __name__ == '__main__':
     # создаём инстанс гиперпараметров
     hp = Hyperparameters()
 
-    # (!) plotly странно работает при первом вызове в цикле - выведем графические
+    # (!) plotly странно работает при первом вызове в колабе в цикле - выведем графические
     # индикаторы и удалим инстанс
-    # Show.indicators(
-    #     hp,
-    #     params=['n_epochs', 'warmup_epochs', 'prediction_len'],
-    #     titles=['Эпох обучения', 'Эпох прогрева', 'Глубина предикта']
-    # )
+    if os.environ['RUN_ENV'] == 'COLAB':
+        Show.indicators(
+            hp,
+            params=['n_epochs', 'warmup_epochs', 'prediction_len'],
+            titles=['Эпох обучения', 'Эпох прогрева', 'Глубина предикта']
+        )
 
     # создаём менеджер данных и готовим исходный DataFrame для формирования выборок
     dm = DataManager()
