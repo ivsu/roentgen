@@ -413,9 +413,9 @@ class Researcher:
                     if bot.shift == from_shift
                     }
                 # если считанная популяция неполная
-                n_extra_bots = self.hp.get('n_bots') - len(self.population)
-                if n_extra_bots > 0:
-                    self.population = self.population | self.generate(n_extra_bots)
+                # n_extra_bots = self.hp.get('n_bots') - len(self.population)
+                # if n_extra_bots > 0:
+                #     self.population = self.population | self.generate(n_extra_bots)
                 assert len(self.population) == self.hp.get('n_bots')
                 # получаем индексы обученных ботов
                 learned_indices = [
