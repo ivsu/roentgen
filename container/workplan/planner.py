@@ -10,7 +10,7 @@ logger = Logger(__name__)
 
 
 if __name__ == '__main__':
-    os.chdir('..')
+    # os.chdir('..')
     logger.setup(level=logger.INFO, layout='debug')
 
     # создаём инстанс гиперпараметров
