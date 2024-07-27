@@ -1,5 +1,0 @@
-{$SERVER_NAME:localhost} {
-	root * /var/www/html
-	php_fastcgi php:9000
-	file_server
-}

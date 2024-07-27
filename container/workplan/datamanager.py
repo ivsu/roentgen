@@ -81,7 +81,6 @@ class DataManager:
             select
                 year, week, modality, contrast_enhancement as ce, amount
             from {self.db_schema_prefix}work_summary
-            where year >= 2022
             order by year, week
             ;
         """
