@@ -127,9 +127,10 @@ class DataManager:
 
     def from_generator(self, splits, split):
         """ Возвращает датасет в зависимости от аргумента split"""
-        ds = Dataset.from_generator(self._gen, gen_kwargs={
-            'splits': splits, 'split': split
-        })
+        # ds = Dataset.from_generator(self._gen, gen_kwargs={
+        ds = Dataset.from_generator(generator, gen_kwargs=dict(
+            df=self.df, splits=splits, split=split, prediction_len=self.prediction_len
+        ))
         # используем функциональность датасета set_transform для конвертации
         # признака start в pd.Period на лету
         ds.set_transform(self.transform_start_field)
@@ -153,40 +154,40 @@ class DataManager:
         batch["start"] = [self.convert_to_pandas_period(date) for date in batch["start"]]
         return batch
 
-    def _gen(self, splits, split):
-        """
-        Генератор выборок.
-
-        :param splits: количество выборок, на которое делится датасет (2, 3)
-        :param split: имя сплита (train, validation, test)
-        """
-        assert splits in [2, 3]
-        assert split in ['train', 'validation', 'test']
-
-        # определим конечный индекс данных, в зависимости от выборки
-        # сплиты будут разной длины на prediction_len, но начало у них всех одинаковое
-        if splits == 3 and split == 'train':
-            end_index = len(self.df) - self.prediction_len * 2
-        elif (splits == 3 and split == 'validation' or
-              splits == 2 and split == 'train'):
-            end_index = len(self.df) - self.prediction_len
-        elif split == 'test':
-            end_index = len(self.df)
-        else:
-            raise Exception(f'Неверное сочетание имени выборки [{split}] и количества выборок [{splits}].')
-
-        # дата начала временной последовательности - одинаковая для всех данных
-        # переводим в timestamp, т.к. Arrow не понимает Period, -
-        # будем конвертировать в Period на этапе трансформации
-        start_date = self.df.index.min().to_timestamp()
-
-        for channel, index in CHANNEL_INDEX.items():
-            yield {
-                'start': start_date,
-                'target': self.df[channel].iloc[:end_index].to_list(),
-                # статический признак последовательности
-                'feat_static_cat': [index]
-            }
+    # def _gen(self, splits, split):
+    #     """
+    #     Генератор выборок.
+    #
+    #     :param splits: количество выборок, на которое делится датасет (2, 3)
+    #     :param split: имя сплита (train, validation, test)
+    #     """
+    #     assert splits in [2, 3]
+    #     assert split in ['train', 'validation', 'test']
+    #
+    #     # определим конечный индекс данных, в зависимости от выборки
+    #     # сплиты будут разной длины на prediction_len, но начало у них всех одинаковое
+    #     if splits == 3 and split == 'train':
+    #         end_index = len(self.df) - self.prediction_len * 2
+    #     elif (splits == 3 and split == 'validation' or
+    #           splits == 2 and split == 'train'):
+    #         end_index = len(self.df) - self.prediction_len
+    #     elif split == 'test':
+    #         end_index = len(self.df)
+    #     else:
+    #         raise Exception(f'Неверное сочетание имени выборки [{split}] и количества выборок [{splits}].')
+    #
+    #     # дата начала временной последовательности - одинаковая для всех данных
+    #     # переводим в timestamp, т.к. Arrow не понимает Period, -
+    #     # будем конвертировать в Period на этапе трансформации
+    #     start_date = self.df.index.min().to_timestamp()
+    #
+    #     for channel, index in CHANNEL_INDEX.items():
+    #         yield {
+    #             'start': start_date,
+    #             'target': self.df[channel].iloc[:end_index].to_list(),
+    #             # статический признак последовательности
+    #             'feat_static_cat': [index]
+    #         }
 
 
 if __name__ == '__main__':
