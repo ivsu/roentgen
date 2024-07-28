@@ -15,7 +15,7 @@ from evaluate import load
 from gluonts.time_feature import get_seasonality
 
 from modelbuilder import ModelBuilder
-from show import Show
+from show import dashboard
 from dataloaders import create_train_dataloader, create_test_dataloader
 from schedulers import WarmAndDecayScheduler
 from common.logger import Logger
@@ -338,7 +338,7 @@ def _rate_bots(bots: dict[Bot], n_bots: int = None):
     if n_bots is None:
         n_bots = len(bots)
     # получаем пары (ID, оценка); боты без оценки окажутся в конце
-    rating = [(bot_id, bot.score if bot.score else -1.) for bot_id, bot in bots.items()]
+    rating = [(bot_id, bot.score if bot.score else 1e9) for bot_id, bot in bots.items()]
     # сортируем по оценке и отбираем заданное количество лучших
     rating = sorted(rating, key=lambda t: t[1])[:n_bots]
     # возвращаем словарь лучших ботов
@@ -571,7 +571,7 @@ class Researcher:
 
                 # выводим статистику бота
                 if self.show_graphs:
-                    Show.dashboard(bot.metrics, self.test_ds, forecasts, bot,
+                    dashboard(bot.metrics, self.test_ds, forecasts, bot,
                                    self.channel_names,
                                    total_periods=4,
                                    name=str(bot)
@@ -580,6 +580,12 @@ class Researcher:
                 del model, train_dataloader, test_dataloader
                 torch.cuda.empty_cache()
                 gc.collect()
+
+            # выводим рейтинг 10-ти лучших ботов на текущий цикл
+            print('Рейтинг лучших ботов:')
+            best_bots = _rate_bots(self.bots, 10)
+            for bot in best_bots.values():
+                print(repr(bot))
 
     def generate(self, number, mode='random', start_index=0):
         """

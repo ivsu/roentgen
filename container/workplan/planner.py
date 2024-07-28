@@ -3,7 +3,7 @@ import os
 from hyperparameters import Hyperparameters
 from datamanager import DataManager, CHANNEL_NAMES
 from genetic import Researcher
-from show import Show
+from show import indicators
 from common.logger import Logger
 
 logger = Logger(__name__)
@@ -19,7 +19,7 @@ if __name__ == '__main__':
     # (!) plotly странно работает при первом вызове в колабе в цикле - выведем графические
     # индикаторы и удалим инстанс
     if os.environ['RUN_ENV'] == 'COLAB':
-        Show.indicators(
+        indicators(
             hp,
             params=['n_epochs', 'warmup_epochs', 'prediction_len'],
             titles=['Эпох обучения', 'Эпох прогрева', 'Глубина предикта']
