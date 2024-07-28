@@ -328,6 +328,23 @@ class Bot:
         return self.__str__(self.repr_formats)
 
 
+def _rate_bots(bots: dict[Bot], n_bots: int = None):
+    """
+    Сортирует и возвращает словарь ботов в порядке убывания оценки.
+
+    :param bots: словарь ботов по их ID
+    :param n_bots: количество возвращаемых лучших ботов; если не задано, то все
+    """
+    if n_bots is None:
+        n_bots = len(bots)
+    # получаем пары (ID, оценка)
+    rating = [(bot_id, bot.score) for bot_id, bot in bots.items()]
+    # сортируем по оценке и отбираем заданное количество лучших
+    rating = sorted(rating, key=lambda t: t[1])[:n_bots]
+    # возвращаем словарь лучших ботов
+    return {rate[0]: bots[rate[0]] for rate in rating}
+
+
 class Researcher:
     """
     Класс исследователя, который создаёт и испытывает популяции ботов
@@ -411,7 +428,7 @@ class Researcher:
                     bot.id: bot
                     for bot in self.bots.values()
                     if bot.shift == from_shift
-                    }
+                }
                 # если считанная популяция неполная
                 # n_extra_bots = self.hp.get('n_bots') - len(self.population)
                 # if n_extra_bots > 0:
@@ -534,7 +551,7 @@ class Researcher:
                     losses = np.random.rand(
                         bot.get('n_epochs'),
                         bot.get('num_batches_per_epoch')
-                        ).tolist()
+                    ).tolist()
                     # forecasts = ...
                     mase_metrics = np.random.rand(len(self.train_ds)).tolist()
                     smape_metrics = np.random.rand(len(self.train_ds)).tolist()
@@ -628,13 +645,14 @@ class Researcher:
         """Определяет и возвращает словарь лучших ботов
         """
         # количество отбираемых ботов равно количеству выживших
-        number = self.hp.get('n_survived')
-        # получаем пары (ID, оценка)
-        scores = [(bot_id, bot.score) for bot_id, bot in self.bots.items()]
-        # из отсортированного списка берём заданное количество лучших пар (ID, оценка)
-        best_pairs = sorted(scores, key=lambda t: t[1])[:number]
-        # возвращаем словарь лучших ботов
-        best_bots = {t[0]: self.bots[t[0]] for t in best_pairs}
+        best_bots = _rate_bots(self.bots, self.hp.get('n_survived'))
+
+        # # получаем пары (ID, оценка)
+        # scores = [(bot_id, bot.score) for bot_id, bot in self.bots.items()]
+        # # из отсортированного списка берём заданное количество лучших пар (ID, оценка)
+        # best_pairs = sorted(scores, key=lambda t: t[1])[:number]
+        # # возвращаем словарь лучших ботов
+        # best_bots = {t[0]: self.bots[t[0]] for t in best_pairs}
         logger.info('Лучшие боты:')
         for bot in best_bots.values():
             logger.info(repr(bot))
@@ -686,7 +704,7 @@ class Researcher:
                     # берём случайное значение у одного из родителей
                     values[key] = self.bots[
                         random.choice(parent_ids)
-                        ].values[key]
+                    ].values[key]
 
             # установим хэш для новых значений
             bot_hash = self.hp.get_hash(values)
@@ -732,6 +750,7 @@ class Researcher:
                     max_id = bot.id
         if len(filelist) > 0:
             print(f'Считано ботов с диска в пространстве имён "{namespace}": {len(filelist)}')
+            bots = _rate_bots(bots)
             for bot in bots.values():
                 print(repr(bot))
 
