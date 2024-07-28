@@ -337,8 +337,8 @@ def _rate_bots(bots: dict[Bot], n_bots: int = None):
     """
     if n_bots is None:
         n_bots = len(bots)
-    # получаем пары (ID, оценка)
-    rating = [(bot_id, bot.score) for bot_id, bot in bots.items()]
+    # получаем пары (ID, оценка); боты без оценки окажутся в конце
+    rating = [(bot_id, bot.score if bot.score else -1.) for bot_id, bot in bots.items()]
     # сортируем по оценке и отбираем заданное количество лучших
     rating = sorted(rating, key=lambda t: t[1])[:n_bots]
     # возвращаем словарь лучших ботов
