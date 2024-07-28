@@ -20,7 +20,7 @@ class Hyperparameters:
             # частота, с которой группируются данные для подачи в сеть
             freq='W-SUN',
             # длина предсказываемой последовательности
-            prediction_len=4,
+            prediction_len=52,
             # количество эпох на прогрев модели
             warmup_epochs=5,
             # папка для хранения ботов
@@ -54,14 +54,13 @@ class Hyperparameters:
             # количество батчей на эпоху
             num_batches_per_epoch=[40, 60, 80, 100, 120, 140, 160],
             # соотношение длины контекста к длине предсказываемой последовательности
-            context_ratio=[0.5, 0.75, 1.0, 1.5, 2.],
+            context_ratio=[1.0, 1.1, 1.5, 2.],
             # дополнительные признаки - временные лаги - на сколько недель мы "смотрим назад"
             lags_sequence=[s for s in range(len(self.lags_sequencies))],
             # функции применяемые в качестве временных фичей
             time_features_function=[0, 1, 2],  # [day_of_month, week_of_year, all_together]
-            # размерность эмбеддингов трансформера
-            embedding_dim=[1, 2, 4, 8],
             # параметры трансформера:
+            embedding_dim=[1, 2, 4, 8],
             encoder_layers=[1, 2, 4, 8],
             decoder_layers=[1, 2, 4, 8],
             d_model=[8, 16, 32, 64],
