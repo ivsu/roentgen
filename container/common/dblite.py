@@ -39,9 +39,10 @@ def get_all(cursor: sqlite3.Cursor) -> pd.DataFrame:
 
 
 class DB:
-    def __init__(self, db_schema=None):
+    def __init__(self, db_path=None):
         self.connection = None
         self.cursor = None
+        self.db_path = db_path if db_path else DB_PATH
 
     def connect(self):
         """Creates DB session"""
@@ -59,6 +60,9 @@ class DB:
             self.connect()
         self.cursor = self.connection.cursor()
         return CursorContextManager(self.cursor)
+
+    def commit(self):
+        self.connection.commit()
 
     def close(self):
         """Полностью отключается от DB"""

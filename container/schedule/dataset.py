@@ -7,9 +7,11 @@ import random
 from datetime import time, datetime, timedelta
 
 from common.db import DB, get_all
+from common.dblite import DB as SQLite
 from common.timeutils import time_to_interval, get_time_chunck
 from schedule.dataloader import DataLoader, get_month_layout, \
     DOCTOR_COLUMNS, DOCTOR_DAY_PLAN_COLUMNS, MODALITIES, MODALITIES_MAP, SCHEDULE_TYPES
+from settings import LOCAL_FOLDER
 
 DATALOADER = None
 DB_SCHEMA = None
@@ -343,6 +345,63 @@ def generate_test_time_norm():
     db.upsert(df, 'time_norm', unique)
     db.close()
     print('Записано строк:', len(df))
+
+
+def data_transfer():
+    """Перенос данных из PG в SQLite"""
+    tablename = 'work_summary'
+    schema = 'roentgen'
+    pd.set_option('display.expand_frame_repr', False)
+
+    query = f"""
+        select
+        *
+        from {schema}.{tablename}
+        where version = 'train' 
+    """
+    db = DB(schema)
+    with db.get_cursor() as cursor:
+        cursor.execute(query)
+        df = get_all(cursor)
+    print(f'Считано из PG:\n{df.head(10)}')
+    db.close()
+
+    # колонки version нет в целевой базе
+    df.drop(columns=['version'], inplace=True)
+
+    def create_row(row):
+        return f"('{row['uid']}', '{row['created_at']}', '{row['updated_at']}'," \
+               f" {row['year']}, {row['week']}, '{row['modality']}', '{row['contrast_enhancement']}', {row['amount']})"
+
+    df['string_values'] = df.apply(create_row, axis=1)
+    with pd.option_context('display.max_colwidth', -1):
+        values = df['string_values'].to_string(header=False, index=False)
+    values = values.replace("\n", ",\n")
+    # print(f'Строка:\n{values[:200]}')
+    # for row in values.split('\n')[:10]:
+    #     print(row)
+    # print(values[:200])
+    sql_columns = 'uid, created_at, updated_at, year, week, modality, contrast_enhancement, amount'
+    unique_columns = 'year, week, modality, contrast_enhancement'
+
+    query = f"""
+        INSERT INTO {tablename}({sql_columns})
+        VALUES {values}
+        ON CONFLICT({unique_columns})
+        DO UPDATE
+            SET amount = excluded.amount;
+    """
+    sqlite = SQLite()
+    try:
+        with sqlite.get_cursor() as cursor:
+            cursor.execute(query)
+        sqlite.commit()
+        print('Данные записаны.')
+    except Exception as e:
+        with open(LOCAL_FOLDER + 'sqlite_query.sql', 'w') as f:
+            f.write(query)
+            print('Ошибка при записи:', repr(e))
+    sqlite.close()
 
 
 if __name__ == '__main__':

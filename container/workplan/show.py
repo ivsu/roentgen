@@ -55,8 +55,56 @@ def prices_lines(
     fig.show()
 
 
-def time_series_by_year():
-    pass
+def time_series_by_year(data: list[dict]):
+    fig = go.Figure()
+
+    data_index = 0
+
+    def get_data(index):
+        rows: dict = data[index]['years']
+        return list(rows.values()), list(rows.keys())
+
+    targets, years = get_data(data_index)
+    channel_names = [mod['label'] for mod in data]
+
+    for i, target in enumerate(targets):
+        fig.add_trace(go.Scatter(
+            x=np.arange(len(target)),
+            y=target,
+            mode='lines',
+            # line=dict(width=0.5, color='rgba(192, 192, 192, 1)'),
+            name=years[i],
+        ))
+
+    filter_buttons = []
+    for i, channel in enumerate(channel_names):
+        targets, years = get_data(i)
+        filter_buttons.append(dict(
+            args=[dict(
+                y=targets,
+                # selector=dict(name='Прогноз'),
+                ),
+                dict(title=f'Количество исследований по годам по модальности: {channel}'),
+                np.arange(len(targets))
+            ],
+            label=channel,
+            method='update'
+        ))
+
+    fig.update_xaxes(title_text="Недели года")
+    fig.update_yaxes(title_text="Количество исследований")
+    fig.update_layout(
+        title_text='Количество исследований по годам для заданной модальности',
+        autosize=False, width=700, height=500,
+        updatemenus=[
+            dict(
+                buttons=filter_buttons,
+                direction="down",
+            ),
+        ],
+    )
+
+    fig.show()
 
 
 def dashboard(metrics, dataset, forecasts, hp,
@@ -191,8 +239,8 @@ def dashboard(metrics, dataset, forecasts, hp,
                 ],
                 # selector=dict(name='Прогноз'),
                 ),
-                dict(subplot_titles=('Функция ошибки', 'MASE/sMAPE',
-                                     f'Прогноз/факт [{channel_names[i]}]')),
+                # dict(subplot_titles=('Функция ошибки', 'MASE/sMAPE',
+                #                      f'Прогноз/факт [{channel_names[i]}]')),
                 [4, 5, 6, 7]
             ],
             label=channel,
