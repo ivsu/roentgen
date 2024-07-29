@@ -11,7 +11,6 @@ from matplotlib_inline.config import InlineBackend
 from schedule.dataloader import DataLoader, get_month_layout, MODALITIES, SCHEDULE_TYPES
 from settings import DB_VERSION
 from common.logger import Logger
-
 if DB_VERSION == 'PG':
     from common.db import DB
 else:

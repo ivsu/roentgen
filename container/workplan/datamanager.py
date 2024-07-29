@@ -4,8 +4,9 @@ import pandas as pd
 from datetime import datetime, timedelta
 from datasets import Dataset
 from functools import lru_cache
+
 from common.logger import Logger
-from hyperparameters import Hyperparameters
+from workplan.hyperparameters import Hyperparameters
 from settings import DB_VERSION
 if DB_VERSION == 'PG':
     from common.db import DB, get_all

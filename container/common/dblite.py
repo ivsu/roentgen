@@ -1,8 +1,7 @@
-from typing import Iterable, Any
-
 import os
 import sqlite3
 import pandas as pd
+
 from common.logger import Logger
 from settings import PROJECT_FOLDER
 

@@ -14,10 +14,10 @@ import torch
 from evaluate import load
 from gluonts.time_feature import get_seasonality
 
-from modelbuilder import ModelBuilder
-from show import dashboard
-from dataloaders import create_train_dataloader, create_test_dataloader
-from schedulers import WarmAndDecayScheduler
+from workplan.modelbuilder import ModelBuilder
+from workplan.show import dashboard
+from workplan.dataloaders import create_train_dataloader, create_test_dataloader
+from workplan.schedulers import WarmAndDecayScheduler
 from common.logger import Logger
 
 logger = Logger(__name__)

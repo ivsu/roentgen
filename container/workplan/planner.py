@@ -1,9 +1,9 @@
 import os
 
-from hyperparameters import Hyperparameters
-from datamanager import DataManager, CHANNEL_NAMES
-from genetic import Researcher
-from show import indicators
+from workplan.hyperparameters import Hyperparameters
+from workplan.datamanager import DataManager, CHANNEL_NAMES
+from workplan.genetic import Researcher
+from workplan.show import indicators
 from common.logger import Logger
 
 logger = Logger(__name__)
