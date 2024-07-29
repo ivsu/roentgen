@@ -46,7 +46,9 @@ def time_series_by_year(data: list[dict]):
     fig.update_yaxes(title_text="Количество исследований")
     fig.update_layout(
         title_text=f'Количество исследований по годам по модальности: {channel_names[data_index]}',
-        autosize=False, width=700, height=500,
+        # autosize=False, width=700, height=500,
+    )
+    fig.update_layout(
         updatemenus=[
             dict(
                 buttons=filter_buttons,
@@ -54,7 +56,6 @@ def time_series_by_year(data: list[dict]):
             ),
         ],
     )
-
     fig.show()
 
 
@@ -238,8 +239,8 @@ def indicators(hp, params, titles):
         grid={'rows': 1, 'columns': len(params), 'pattern': "independent"},
         )
     fig.show()
-    fig = None
-    gc.collect()
+    # fig = None
+    # gc.collect()
 
 
 def test(figure=None, row=1, col=1):
