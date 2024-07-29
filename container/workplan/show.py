@@ -6,55 +6,6 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 
-def prices_lines(
-    train_ds,
-    valid_ds,
-    test_ds,
-    start_index=0  # индекс, с которого отображать все выборки
-):
-    """ Выводит выборки курсов акции """
-    fig = go.Figure()
-    x = np.arange(len(test_ds[0]['target']))[start_index:]
-
-    # open: index 0
-    channel = 0
-
-    # high: index 1
-    fig.add_trace(go.Scatter(
-        x=x,
-        y=test_ds[1]['target'][start_index:],
-        mode='lines',
-        line=dict(width=0.5, color='rgba(192, 192, 192, 1)'),
-        name='high',
-    ))
-    # low: index 2
-    fig.add_trace(go.Scatter(
-        x=x,
-        y=test_ds[2]['target'][start_index:],
-        mode='lines',
-        line=dict(width=0.5, color='rgba(192, 192, 192, 1)'),
-        # fill='tonexty', fillcolor='rgba(192, 192, 192, 0.3)',
-        name="low",
-    ))
-    # отрисовка
-    fig.add_trace(
-        go.Scatter(x=x, y=test_ds[0]['target'][start_index:], name='test')
-    )
-    fig.add_trace(
-        go.Scatter(x=x, y=valid_ds[0]['target'][start_index:], name='valid')
-    )
-    fig.add_trace(
-        go.Scatter(x=x, y=train_ds[0]['target'][start_index:], name='train')
-    )
-    fig.update_xaxes(title_text="Индекс данных")
-    fig.update_yaxes(title_text="Курс акции")
-    fig.update_layout(
-        title_text='Наложенные друг на друга выборки и волатильность (low, high)',
-        autosize=False, width=700, height=500,
-    )
-    fig.show()
-
-
 def time_series_by_year(data: list[dict]):
     fig = go.Figure()
 
@@ -69,7 +20,7 @@ def time_series_by_year(data: list[dict]):
 
     for i, target in enumerate(targets):
         fig.add_trace(go.Scatter(
-            x=np.arange(len(target)),
+            x=np.arange(len(target)) + 1,
             y=target,
             mode='lines',
             # line=dict(width=0.5, color='rgba(192, 192, 192, 1)'),
@@ -94,7 +45,7 @@ def time_series_by_year(data: list[dict]):
     fig.update_xaxes(title_text="Недели года")
     fig.update_yaxes(title_text="Количество исследований")
     fig.update_layout(
-        title_text='Количество исследований по годам для заданной модальности',
+        title_text=f'Количество исследований по годам по модальности: {channel_names[data_index]}',
         autosize=False, width=700, height=500,
         updatemenus=[
             dict(
