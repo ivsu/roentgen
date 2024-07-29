@@ -2,8 +2,7 @@ import json
 import os
 import glob
 import gc
-# import random
-import time
+from datetime import datetime, timedelta
 import numpy as np
 
 # для обучения модели
@@ -24,6 +23,7 @@ logger = Logger(__name__)
 
 
 def train(model, config, dataloader, hp, mode='genetic'):
+
     epochs = 2 if mode == 'test' else hp.get('n_epochs')
     warmup_epochs = hp.get('warmup_epochs')
     steps = 0
@@ -59,7 +59,7 @@ def train(model, config, dataloader, hp, mode='genetic'):
 
     model.train()
     losses = []
-    start_time = time.time()
+    start_time = datetime.now()
     for epoch in range(epochs):
         epoch_losses = []
         for idx, batch in enumerate(dataloader):
@@ -93,7 +93,7 @@ def train(model, config, dataloader, hp, mode='genetic'):
         losses.append(epoch_losses)
         mean_loss = sum(epoch_losses) / len(epoch_losses)
         # scheduler.step(mean_loss)
-        t = time.time() - start_time
+        t = datetime.now() - start_time
 
         end = chr(10) if epoch == epochs - 1 else ''
         print('\r'
@@ -101,10 +101,10 @@ def train(model, config, dataloader, hp, mode='genetic'):
               f' | mean loss: {mean_loss:.4f}'
               f' | LR: {lr:.6f}'
               f' | steps: {steps:4d}'
-              f' | total time: {t:3.0f}s',
+              f' | total time: {t.seconds:3.0f}s',
               end=end)
 
-    return model, losses, device
+    return model, losses, device, t, epochs
 
 
 def inference(model, dataloader, config, device):
@@ -203,6 +203,19 @@ class Bot:
         """
         # папка, где хранится бот
         self.bots_folder = hp.get('bots_folder')
+        # словарь значений гиперпараметров бота
+        self.values = None
+        # метрики бота
+        self.metrics = None
+        # оценка бота после обучения соответствующей модели
+        self.score = None
+        # хэш значений гиперпараметров для проверки уникальности бота
+        self.hash = None
+        # количество эпох, на которых обучен бот
+        self.epochs = 0
+        # время, которое обучался бот
+        self.train_time = timedelta(0)
+
         # если передано состояние, восстанавливаем бота из него
         if state:
             self.from_state(state)
@@ -213,14 +226,6 @@ class Bot:
             self.index = index
             # пространство имён, к которому относится бот
             self.namespace = hp.get('namespace')
-            # словарь значений гиперпараметров бота
-            self.values = None
-            # метрики бота
-            self.metrics = None
-            # оценка бота после обучения соответствующей модели
-            self.score = None
-            # хэш значений гиперпараметров для проверки уникальности бота
-            self.hash = None
 
         # список ключей изменяемых параметров
         self.changeable = [k for k in hp.space.keys()]
@@ -291,6 +296,8 @@ class Bot:
             'namespace': self.namespace,
             'values': self.values,
             'metrics': self.metrics,
+            'train_time': self.train_time,
+            'epochs': self.epochs,
             'score': self.score,
             'hash': self.hash,
         }
@@ -318,11 +325,12 @@ class Bot:
             params += delimiter + f'{self.cuts[i]}: {value}'
             delimiter = ', '
 
-        score = f'{self.score:.4f} ({self.metric})' if self.score is not None else None
+        score = f'{self.score:.4f}' if self.score is not None else None
         shift = f'{self.shift:02d}' if self.shift is not None else None
         index = f'{self.index:02d}' if self.index is not None else None
-        return (f'ID {self.id:3d} [{self.namespace}.{shift}.{index}]'
-                f', values: [{params}], score: {score}')
+        return (f'ID {self.id:3d} [{self.namespace}.{shift}.{index}], '
+                u'\U0001F39B' + f' [{params}], {self.metric}: {score}, '
+                f't: {self.train_time.seconds:3.0f}s [{self.epochs}]')
 
     def __repr__(self):
         return self.__str__(self.repr_formats)
@@ -528,7 +536,7 @@ class Researcher:
                         time_features=time_features,
                     )
                     # обучаем модель
-                    model, losses, device = train(model, config, train_dataloader, bot, self.mode)
+                    model, losses, device, train_time, epochs = train(model, config, train_dataloader, bot, self.mode)
 
                     # формируем тестовую выборку и делаем инференс
                     test_dataloader = create_test_dataloader(
@@ -545,8 +553,9 @@ class Researcher:
                     # print('После расчёта метрик')
                 else:
                     # тестовые значения
-
                     losses = self.gen.random(size=(bot.get('n_epochs'), bot.get('num_batches_per_epoch'))).tolist()
+                    train_time = timedelta(0)
+                    epochs = 2
                     # forecasts = ...
                     mase_metrics = self.gen.random(size=len(self.train_ds)).tolist()
                     smape_metrics = self.gen.random(size=len(self.train_ds)).tolist()
@@ -557,6 +566,8 @@ class Researcher:
                     'mase': mase_metrics,
                     'smape': smape_metrics,
                 }
+                bot.train_time = train_time
+                bot.epochs += epochs
                 # оценка бота - среднее значение ошибки sMAPE по всем временным рядам
                 bot.score = np.array(smape_metrics).mean()
 
