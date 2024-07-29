@@ -39,6 +39,7 @@ if __name__ == '__main__':
     researcher = Researcher(train_ds, test_ds, hp,
                             CHANNEL_NAMES,
                             mode='genetic',
+                            # mode='test',
                             show_graphs=True,
                             train=True, save_bots=True)
     researcher.run()

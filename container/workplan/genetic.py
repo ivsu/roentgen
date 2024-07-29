@@ -2,7 +2,7 @@ import json
 import os
 import glob
 import gc
-import random
+# import random
 import time
 import numpy as np
 
@@ -402,8 +402,8 @@ class Researcher:
         self.shift = None
         # индекс первого обучаемого бота в смене (актуально для возобновления обучения)
         self.first_index = None
-        # инициализуем генератор случайных чисел системным временем
-        random.seed()
+        # инициализуем генератор случайных чисел
+        self.gen = np.random.default_rng()
 
     def run(self):
 
@@ -531,7 +531,6 @@ class Researcher:
                     model, losses, device = train(model, config, train_dataloader, bot, self.mode)
 
                     # формируем тестовую выборку и делаем инференс
-                    # print('Перед формированием тестового даталоадера')
                     test_dataloader = create_test_dataloader(
                         config=config,
                         freq=bot.get('freq'),
@@ -539,22 +538,18 @@ class Researcher:
                         batch_size=64,
                         time_features=time_features,
                     )
-                    # print('После формирования тестового даталоадера')
                     forecasts = inference(model, test_dataloader, config, device)
-                    # print('После инференса')
 
                     # считаем и оцениваем метрики MASE/sMAPE
                     mase_metrics, smape_metrics = metrics(self.test_ds, forecasts, bot)
                     # print('После расчёта метрик')
                 else:
                     # тестовые значения
-                    losses = np.random.rand(
-                        bot.get('n_epochs'),
-                        bot.get('num_batches_per_epoch')
-                    ).tolist()
+
+                    losses = self.gen.random(size=(bot.get('n_epochs'), bot.get('num_batches_per_epoch'))).tolist()
                     # forecasts = ...
-                    mase_metrics = np.random.rand(len(self.train_ds)).tolist()
-                    smape_metrics = np.random.rand(len(self.train_ds)).tolist()
+                    mase_metrics = self.gen.random(size=len(self.train_ds)).tolist()
+                    smape_metrics = self.gen.random(size=len(self.train_ds)).tolist()
 
                 # запоминаем метрики бота
                 bot.metrics = {
@@ -566,16 +561,16 @@ class Researcher:
                 bot.score = np.array(smape_metrics).mean()
 
                 # сохраняем бота на диск
-                if self.save:
+                if self.save and self.mode != 'test':
                     bot.save()
 
                 # выводим статистику бота
                 if self.show_graphs:
                     dashboard(bot.metrics, self.test_ds, forecasts, bot,
-                                   self.channel_names,
-                                   total_periods=4,
-                                   name=str(bot)
-                                   )
+                              self.channel_names,
+                              total_periods=4,
+                              name=str(bot)
+                              )
                 # освобождаем память
                 del model, train_dataloader, test_dataloader
                 torch.cuda.empty_cache()
@@ -698,7 +693,8 @@ class Researcher:
             # создадим бота и инициализируем его случайным образом
             bot = self.create_bot('random', index, keep_hash=False)
             # получаем ID двух уникальных лучших родителей
-            parent_ids = random.sample(best_ids, k=2)
+            # parent_ids = random.sample(best_ids, k=2)
+            parent_ids = self.gen.choice(best_ids, size=2)
             # получаем имена параметров для мутации
             mut_names = self._mutation()
             # print(f'Параметры для мутации: {mut_names}')
@@ -709,7 +705,8 @@ class Researcher:
                 if key not in mut_names:
                     # берём случайное значение у одного из родителей
                     values[key] = self.bots[
-                        random.choice(parent_ids)
+                        # random.choice(parent_ids)
+                        self.gen.choice(parent_ids)
                     ].values[key]
 
             # установим хэш для новых значений
@@ -732,7 +729,8 @@ class Researcher:
         """Возвращает список имён параметров для случайной мутации"""
         # начнём с 3-х и будем уменьшать на 1 каждые две смены популяции до 1-го
         n_mutations = max(3 - self.shift // 2, 1)
-        return random.sample(list(self.hp.space.keys()), k=n_mutations)
+        # return random.sample(list(self.hp.space.keys()), k=n_mutations)
+        return list(self.gen.choice(list(self.hp.space.keys()), size=n_mutations))
 
     def save_bots(self, bots):
         """Сохраняет всех ботов на диск"""

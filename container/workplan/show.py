@@ -61,6 +61,9 @@ def time_series_by_year(data: list[dict]):
 
 def dashboard(metrics, dataset, forecasts, hp,
               channel_names, total_periods, name):
+
+    metrics = metrics.copy()
+
     fig = make_subplots(
         rows=1, cols=3,
         subplot_titles=('Функция ошибки', 'MASE/sMAPE',
