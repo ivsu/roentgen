@@ -71,19 +71,19 @@ def dashboard(metrics, dataset, forecasts, hp,
                         f'Прогноз/факт [...]')
     )
 
-    losses = np.asarray(metrics['losses'])  # axis 0: epochs, axis 1: batches
-    loss_mean = losses.mean(axis=1)
-    loss_std = losses.std(axis=1)
-    epochs = np.arange(losses.shape[0])
+    losses = np.asarray(metrics['losses'])  # [stages, epochs, batches]
+    loss_mean = losses.mean(axis=(0, 2))
+    loss_std = losses.mean(axis=2).std(axis=0)
+    epochs = np.arange(losses.shape[1])
 
-    mase, smape = metrics['mase'], metrics['smape']
+    mase = np.array(metrics['mase']).mean(axis=0)  # [stages, channels]
+    smape = np.array(metrics['smape']).mean(axis=0)
 
     freq = hp.get('freq')
     prediction_len = hp.get('prediction_len')
 
     ts_index = 0
-    ds = dataset[ts_index]
-    forecast = forecasts[ts_index]
+    forecast_periods = forecasts.shape[2]
 
     index = pd.period_range(
         start=dataset[0][FieldName.START],
@@ -119,6 +119,8 @@ def dashboard(metrics, dataset, forecasts, hp,
     fig.add_trace(
         go.Scatter(
             x=epochs, y=loss_mean,
+            mode='lines+markers',
+            line=dict(color='forestgreen'),
             name="Ошибка"
         ),
         row=1, col=1
@@ -139,11 +141,18 @@ def dashboard(metrics, dataset, forecasts, hp,
 
     # План / Факт
 
+    planfact = [dict(
+        std_plus=forecasts[i].mean(axis=0) + forecasts[i].std(axis=0),
+        std_minus=forecasts[i].mean(axis=0) - forecasts[i].std(axis=0),
+        plan=np.median(forecasts[i], axis=0),
+        fact=dataset[i]["target"][-total_periods * prediction_len:],
+    ) for i, _ in enumerate(channel_names)]
+
     # стандартное отклонение ±1
     fig.add_trace(
         go.Scatter(
-            x=index[-prediction_len:],
-            y=forecast.mean(axis=0) + forecast.std(axis=0),
+            x=index[-forecast_periods:],
+            y=planfact[ts_index]['std_plus'],
             mode='lines',
             line=dict(width=0.5, color='rgba(192, 192, 192, 1)'),
             showlegend=False,
@@ -152,8 +161,8 @@ def dashboard(metrics, dataset, forecasts, hp,
     )
     fig.add_trace(
         go.Scatter(
-            x=index[-prediction_len:],
-            y=forecast.mean(axis=0) - forecast.std(axis=0),
+            x=index[-forecast_periods:],
+            y=planfact[ts_index]['std_minus'],
             mode='lines',
             line=dict(width=0.5, color='rgba(192, 192, 192, 1)'),
             fill='tonexty', fillcolor='rgba(192, 192, 192, 0.3)',
@@ -164,8 +173,9 @@ def dashboard(metrics, dataset, forecasts, hp,
     # медиана прогноза
     fig.add_trace(
         go.Scatter(
-            x=index[-prediction_len:],
-            y=np.median(forecast, axis=0),
+            x=index[-forecast_periods:],
+            y=planfact[ts_index]['plan'],
+            mode='lines+markers',
             line=dict(color='DodgerBlue'),
             name="Прогноз"
         ),
@@ -175,7 +185,8 @@ def dashboard(metrics, dataset, forecasts, hp,
     fig.add_trace(
         go.Scatter(
             x=index[-total_periods * prediction_len:],
-            y=ds["target"][-total_periods * prediction_len:],
+            y=planfact[ts_index]['fact'],
+            mode='lines',
             line=dict(color='lightsalmon'),
             name="Факт"
         ),
@@ -186,14 +197,12 @@ def dashboard(metrics, dataset, forecasts, hp,
     for i, channel in enumerate(channel_names):
         filter_buttons.append(dict(
             args=[dict(
-                y=[
-                    forecasts[i].mean(axis=0) + forecasts[i].std(axis=0),
-                    forecasts[i].mean(axis=0) - forecasts[i].std(axis=0),
-                    np.median(forecasts[i], axis=0),
-                    dataset[i]["target"][-total_periods * prediction_len:],
-                ],
+                y=[v for v in planfact[i].values()],
                 # selector=dict(name='Прогноз'),
                 ),
+                # dict(layout={'title': {'text': 'Title 2'}}),
+                dict(layout={'annotations': [{'title': {'text': 'Stackoverflow'}}]}),
+                # layout.annotations[0].update(text="Stackoverflow")
                 # dict(subplot_titles=('Функция ошибки', 'MASE/sMAPE',
                 #                      f'Прогноз/факт [{channel_names[i]}]')),
                 [4, 5, 6, 7]
@@ -201,6 +210,22 @@ def dashboard(metrics, dataset, forecasts, hp,
             label=channel,
             method='update'
         ))
+
+    #
+    # дополнительно отрисуем функции ошибок по каждой стадии
+    for stage in range(losses.shape[0]):
+        # среднее значение ошибки на эпоху
+        loss_mean = losses[stage].mean(axis=1)
+        fig.add_trace(
+            go.Scatter(
+                x=epochs, y=loss_mean,
+                name=f'Stage {stage}',
+                mode='lines',
+                line=dict(width=0.5, color='rgba(34, 139, 34, 0.3)'),  # forestgreen
+                # showlegend=stage == 0,
+            ),
+            row=1, col=1
+        )
 
     fig.update_layout(
         title_text=f'Бот {name}',
@@ -268,5 +293,4 @@ def test(figure=None, row=1, col=1):
         ),
         row=row, col=col
     )
-    # fig.layout.annotations[0].update(text="Stackoverflow")
     fig.show()

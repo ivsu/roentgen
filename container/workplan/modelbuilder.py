@@ -16,24 +16,12 @@ logger = Logger(__name__)
 
 
 class ModelBuilder:
-    def __init__(self, dataset, bot):
+    def __init__(self, bot, n_channels, n_time_features):
+
         # дополнительные признаки - временные лаги - на сколько дней мы "смотрим назад"
         lags_sequence = bot.get_lags_sequence()
 
-        # формируем дополнительные временные признаки: день недели, день месяца, день года
-        # при определении трансформации к ним будет добавлен ещё один - "возраст" последовательности
-        function_index = bot.get('time_features_function')
-        time_features = time_features_from_frequency_str(bot.get('freq'))
-        # logger.debug(f'time_features:\n{time_features}')
-        assert len(time_features) == 2
-        # возьмём одну из двух функций (2 == all together)
-        if function_index < 2:
-            time_features = [time_features[function_index]]
-        # print(f'time_features:\n{time_features}')
-        self.time_features = time_features
-
         logger.debug(f'Временные лаги: ({type(lags_sequence)}): {lags_sequence}')
-        logger.debug(f'Временные признаки: ({type(time_features)}): {time_features}')
 
         prediction_len = bot.get('prediction_len')
 
@@ -45,15 +33,14 @@ class ModelBuilder:
             # временные лаги
             lags_sequence=lags_sequence,
             # количество временных признака + 1 (возраст временного шага) будет добавлен при трансформации
-            num_time_features=len(time_features) + 1,
+            num_time_features=n_time_features + 1,
             # единственный статический категориальный признак - ID серии:
             num_static_categorical_features=1,
             # количество каналов
-            cardinality=[len(dataset)],
+            cardinality=[n_channels],
             # размерность эмбеддингов
             embedding_dimension=[bot.get('embedding_dim')],
-
-            # transformer params:
+            # параметры трансформера
             encoder_layers=bot.get('encoder_layers'),
             decoder_layers=bot.get('decoder_layers'),
             d_model=bot.get('d_model'),
@@ -82,8 +69,8 @@ if __name__ == '__main__':
     logger.info(f'freq: {bot.get("freq")}')
     logger.info(f'context_ratio: {bot.get("context_ratio")}')
 
-    dataset = [tmp for tmp in range(10)]
-    model = ModelBuilder(dataset, bot)
+    ds = [tmp for tmp in range(10)]
+    mb = ModelBuilder(bot, n_channels=len(ds), n_time_features=1)
 
-    logger.debug(f'model config:\n{model.config}')
+    logger.debug(f'model config:\n{mb.config}')
 

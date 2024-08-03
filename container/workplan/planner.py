@@ -26,20 +26,17 @@ if __name__ == '__main__':
         )
 
     # создаём менеджер данных и готовим исходный DataFrame для формирования выборок
-    dm = DataManager()
-    dm.prepare(
+    datamanager = DataManager()
+    datamanager.read_and_prepare(
         freq=hp.get('freq'),
         prediction_len=hp.get('prediction_len')
     )
-    # формируем выборки
-    train_ds = dm.from_generator(splits=2, split='train')
-    test_ds = dm.from_generator(splits=2, split='test')
 
     # создаём Researcher и передаём ему датасеты и инстанс гиперпараметров
-    researcher = Researcher(train_ds, test_ds, hp,
+    researcher = Researcher(datamanager, hp,
                             CHANNEL_NAMES,
                             mode='genetic',
-                            # mode='test',
+                            # mode='test'  ,
                             show_graphs=True,
                             train=True, save_bots=True)
     researcher.run()

@@ -73,7 +73,7 @@ def show_time_series_by_year():
     hp = Hyperparameters()
 
     dm = DataManager()
-    dm.prepare(
+    dm.read_and_prepare(
         freq=hp.get('freq'),
         prediction_len=hp.get('prediction_len')
     )

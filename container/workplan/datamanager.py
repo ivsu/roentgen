@@ -21,7 +21,7 @@ CHANNEL_NAMES = ['kt', 'kt_ce1', 'kt_ce2', 'mrt', 'mrt_ce1', 'mrt_ce2', 'rg', 'f
 CHANNEL_INDEX = {name: ch for ch, name in enumerate(CHANNEL_NAMES)}
 
 
-def generator(df, splits, split, prediction_len):
+def generator(df, splits, split, prediction_len, end_shift):
     """
     Генератор выборок.
 
@@ -29,19 +29,23 @@ def generator(df, splits, split, prediction_len):
     :param splits: количество выборок, на которое делится датасет (2, 3)
     :param split: имя сплита (train, validation, test)
     :param prediction_len: глубина предсказания
+    :param end_shift: сдвиг на количество шагов (с конца) при обучении бота на временном ряде разной длины
+
     """
     assert splits in [2, 3]
     assert split in ['train', 'validation', 'test']
 
+    ts_len = len(df) + end_shift
+
     # определим конечный индекс данных, в зависимости от выборки
     # сплиты будут разной длины на prediction_len, но начало у них всех одинаковое
     if splits == 3 and split == 'train':
-        end_index = len(df) - prediction_len * 2
+        end_index = ts_len - prediction_len * 2
     elif (splits == 3 and split == 'validation' or
           splits == 2 and split == 'train'):
-        end_index = len(df) - prediction_len
+        end_index = ts_len - prediction_len
     elif split == 'test':
-        end_index = len(df)
+        end_index = ts_len
     else:
         raise Exception(f'Неверное сочетание имени выборки [{split}] и количества выборок [{splits}].')
 
@@ -73,6 +77,10 @@ class DataManager:
         self.prediction_len = None
         # частота данных
         self.freq = None
+        # длина временного ряда
+        self.ts_len = None
+        # количество каналов данных
+        self.n_channels = None
         # префикс схемы БД
         self.db_schema_prefix = 'roentgen.' if DB_VERSION == 'PG' else ''
 
@@ -109,11 +117,13 @@ class DataManager:
         # print(df.columns)
         df.columns = df.columns.levels[1]
         self.df = df
+        self.ts_len = len(df)
+        self.n_channels = len(df.columns)
 
         logger.info('Данные загружены.')
         # logger.info(f'self.df:\n{self.df.head()}')
 
-    def prepare(self, freq, prediction_len):
+    def read_and_prepare(self, freq, prediction_len):
         """ Подготовка источника данных - DataFrame """
         self.freq = freq
         self.prediction_len = prediction_len
@@ -123,34 +133,39 @@ class DataManager:
         self.df.index = self.df.index.to_period(freq)
         # print(f'self.df:\n{self.df}')
 
-    def from_generator(self, splits, split):
+    def from_generator(self, splits, split, end_shift):
         """ Возвращает датасет в зависимости от аргумента split"""
-        # ds = Dataset.from_generator(self._gen, gen_kwargs={
         ds = Dataset.from_generator(generator, gen_kwargs=dict(
-            df=self.df, splits=splits, split=split, prediction_len=self.prediction_len
+            df=self.df, splits=splits, split=split, prediction_len=self.prediction_len, end_shift=end_shift
         ))
         # используем функциональность датасета set_transform для конвертации
         # признака start в pd.Period на лету
-        ds.set_transform(self.transform_start_field)
+        ds.set_transform(self._transform_start_field)
 
         return ds
 
     @lru_cache(10_000)
-    def convert_to_pandas_period(self, date):
+    def _convert_to_pandas_period(self, date):
         """
         Конвертирует дату в pd.Period соответствующей частоты.
         Данные преобразования кэшируются.
         """
         return pd.Period(date, self.freq)
 
-    def transform_start_field(self, batch):
+    def _transform_start_field(self, batch):
         """
         Конвертирует признак start в pd.Period соответствующей частоты по батчу.
         Используется для конвертации на лету.
         """
         # данные преобразования кэшируются
-        batch["start"] = [self.convert_to_pandas_period(date) for date in batch["start"]]
+        batch["start"] = [self._convert_to_pandas_period(date) for date in batch["start"]]
         return batch
+
+    def get_ts_len(self):
+        return self.ts_len
+
+    def get_channels_num(self):
+        return self.n_channels
 
 
 if __name__ == '__main__':
@@ -164,7 +179,7 @@ if __name__ == '__main__':
 
     # создаём менеджер датасета и готовим исходный DataFrame для формирования выборок
     dm = DataManager()
-    dm.prepare(
+    dm.read_and_prepare(
         freq=check_hp.get('freq'),
         prediction_len=check_hp.get('prediction_len')
     )

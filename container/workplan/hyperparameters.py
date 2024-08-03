@@ -2,6 +2,9 @@
 import hashlib
 import numpy as np
 import os
+from gluonts.time_feature import (
+    month_of_year, week_of_year
+)
 from common.logger import Logger
 from settings import BOTS_FOLDER
 
@@ -36,29 +39,36 @@ class Hyperparameters:
             n_survived=5,
             # количество случайных ботов в каждой новой популяции
             n_random=5,
+            # сдвиг на количество шагов (с конца) при обучении бота на временном ряде разной длины
+            end_shifts=[-16, -12, -8, -4, 0]
         )
         # дополнительные признаки - временные лаги - на сколько недель мы "смотрим назад"
-        self.lags_sequencies = [
-            [1, 2, 3, 4, 5, 51, 52, 53, 54, 103, 104, 105, 106, 107],
-            [1, 2, 3, 4, 5, 52, 53, 104, 105, 106],
-            [52, 53, 104, 105, 106],
-            [51, 52, 53, 54, 103, 104, 105, 106, 107],
+        self.lags_sequence_set = [
+            [1, 2, 3, 4, 5, 51, 52, 53, 103, 104, 105],
+            [1, 2, 3, 4, 5, 50, 51, 52, 53, 54, 102, 103, 104, 105, 106],
+            [51, 52, 53, 103, 104, 105],
+            [50, 51, 52, 53, 54, 102, 103, 104, 105, 106],
             [49, 50, 51, 52, 101, 102, 103, 104],
-            [49, 50, 51, 52, 53, 101, 102, 103, 104, 105],
+            [52, 53, 54, 55, 104, 105, 106, 107],
+        ]
+        # временные фичи
+        self.time_features_set = [
+            [week_of_year],
+            [week_of_year, month_of_year],
         ]
         # пространство динамических гиперпараметров, которые меняются
         # в процессе работы генетического алгоритма
         self.space = dict(
             # размер батча тренировочной выборки
-            train_batch_size=[8, 16, 32, 64, 128, 256],
+            train_batch_size=[8, 16, 32, 64, 128],
             # количество батчей на эпоху
-            num_batches_per_epoch=[40, 60, 80, 100, 120, 140, 160],
+            # num_batches_per_epoch=[40, 60, 80, 100, 120, 140, 160],
             # соотношение длины контекста к длине предсказываемой последовательности
-            context_ratio=[1.0, 1.1, 1.5, 2.],
+            context_ratio=[0.5, 0.75, 1.0, 1.25, 1.5],
             # дополнительные признаки - временные лаги - на сколько недель мы "смотрим назад"
-            lags_sequence=[s for s in range(len(self.lags_sequencies))],
+            lags_sequence_index=[s for s in range(len(self.lags_sequence_set))],
             # функции применяемые в качестве временных фичей
-            time_features_function=[0, 1, 2],  # [day_of_month, week_of_year, all_together]
+            time_features_index=[s for s in range(len(self.time_features_set))],
             # параметры трансформера:
             embedding_dim=[1, 2, 4, 8],
             encoder_layers=[1, 2, 4, 8],
@@ -66,11 +76,11 @@ class Hyperparameters:
             d_model=[8, 16, 32, 64],
         )
         # индексы гиперпараметров по умолчанию
-        self.defaults = [3, 3, 1, 4, 0, 1, 1, 1, 1]
+        self.defaults = [3, 1, 4, 0, 1, 1, 1, 1]
         assert len(self.space) == len(self.defaults)
         # ключи параметров данных (для изменения только параметров данных у лучших ботов)
-        self.data_keys = ['train_batch_size', 'num_batches_per_epoch', 'context_ratio',
-                          'lags_sequence', 'time_features_function']
+        self.data_keys = ['train_batch_size', 'context_ratio',
+                          'lags_sequence_index', 'time_features_index']
         # создаём генератор случайных чисел
         self.gen = np.random.default_rng()
 
@@ -120,7 +130,6 @@ class Hyperparameters:
             # инициализуем значения гиперпараметров случайным образом
             if mode == 'random':
                 for key in self.space:
-                    # values[key] = random.choice(self.space[key])
                     value_index = self.gen.integers(0, len(self.space[key]))
                     values[key] = self.space[key][value_index]
 

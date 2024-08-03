@@ -1,8 +1,7 @@
 import json
-import os
 import glob
 import gc
-from datetime import datetime, timedelta
+from datetime import datetime
 import numpy as np
 
 # для обучения модели
@@ -22,16 +21,14 @@ from common.logger import Logger
 logger = Logger(__name__)
 
 
-def train(model, config, dataloader, hp, mode='genetic'):
+def train(model, config, dataloader, hp, mode, stage_prefix):
 
     epochs = 2 if mode == 'test' else hp.get('n_epochs')
     warmup_epochs = hp.get('warmup_epochs')
     steps = 0
 
     # определим количество батчей
-    num_batches = 0
-    for _ in iter(dataloader):
-        num_batches += 1
+    num_batches = len(list(dataloader))
 
     # используем Accelerator от HuggingFace
     accelerator = Accelerator()
@@ -96,22 +93,22 @@ def train(model, config, dataloader, hp, mode='genetic'):
         t = datetime.now() - start_time
 
         end = chr(10) if epoch == epochs - 1 else ''
-        print('\r'
-              f'epoch: {epoch:3d}'
+        print(f'\r{stage_prefix}'
+              f'epoch: {epoch + 1:3d}'
               f' | mean loss: {mean_loss:.4f}'
               f' | LR: {lr:.6f}'
               f' | steps: {steps:4d}'
               f' | total time: {t.seconds:3.0f}s',
               end=end)
 
-    return model, losses, device, t, epochs
+    return model, losses, device, t.seconds, epochs
 
 
 def inference(model, dataloader, config, device):
     """
     Реализует инференс модели с помощью метода generate.
     Возвращает вероятностый прогнозный вектор формы:
-    (количество_временных_рядов, батчей_в_эпохе, глубина_предикта),
+    (количество_временных_рядов, config.num_parallel_samples [100], глубина_предикта),
     Например: (4, 100, 30)
     """
     model.eval()
@@ -140,7 +137,7 @@ def inference(model, dataloader, config, device):
     return forecasts
 
 
-def metrics(dataset, forecasts, bot):
+def calc_metrics(dataset, forecasts, bot):
     """
     Возвращет метрики MASE/sMAPE.
 
@@ -182,9 +179,6 @@ def metrics(dataset, forecasts, bot):
     logger.debug(f"MASE (средняя): {np.mean(mase_metrics)}")
     logger.debug(f"sMAPE (средняя): {np.mean(smape_metrics)}")
 
-    # посмотрим на графики метрик MASE/sMAPE
-    # Show.metrics(mase_metrics, smape_metrics, pds.CHANNEL_NAMES)
-
     return mase_metrics, smape_metrics
 
 
@@ -214,7 +208,7 @@ class Bot:
         # количество эпох, на которых обучен бот
         self.epochs = 0
         # время, которое обучался бот
-        self.train_time = timedelta(0)
+        self.train_time = 0
 
         # если передано состояние, восстанавливаем бота из него
         if state:
@@ -226,19 +220,23 @@ class Bot:
             self.index = index
             # пространство имён, к которому относится бот
             self.namespace = hp.get('namespace')
+            # сдвиг на количество шагов (с конца) при обучении бота на временном ряде разной длины
+            self.end_shifts = hp.get('end_shifts')
 
         # список ключей изменяемых параметров
         self.changeable = [k for k in hp.space.keys()]
-        # возможные временные лаги, заданные в гиперпараметрах
-        self.lags_sequencies = hp.lags_sequencies.copy()
+        self.printable = self.changeable + ['num_batches_per_epoch']
+        # возможные временные лаги и фичи, заданные в гиперпараметрах
+        self.lags_sequence_set = hp.lags_sequence_set.copy()
+        self.time_features_set = hp.time_features_set.copy()
         # сокращённые названия параметров для печати
-        self.cuts = ['bs', 'nb', 'cr', 'ls', 'tff', 'emb', 'enc', 'dec', 'dm']
-        assert len(self.cuts) == len(self.changeable)
+        self.cuts = ['bs', 'cr', 'ls', 'tf', 'emb', 'enc', 'dec', 'dm', 'nb']
+        assert len(self.cuts) == len(self.printable)
         # имя метрики, по которой оценивается бот
         self.metric = 'sMAPE'
         # форматы вывода параметров для методов __str__, __repr__
-        self.repr_formats = ['3d', '3d', '.1f', '1d', '1d', '1d', '1d', '1d', '3d']
-        self.str_formats = ['', '', '.1f', '', '', '', '', '', '']
+        self.repr_formats = ['3d', '.2f', '1d', '1d', '1d', '1d', '1d', '3d', '3d']
+        self.str_formats = ['', '.2f', '', '', '', '', '', '', '']
 
     def activate(self, values, bot_hash):
         """Инициализирует значения гиперпараметров бота и сохраняет хэш их значений"""
@@ -253,8 +251,12 @@ class Bot:
             raise KeyError(f'Не задан гиперпараметр с ключом: {key}.')
 
     def get_lags_sequence(self):
-        index = self.get('lags_sequence')
-        return self.lags_sequencies[index]
+        index = self.get('lags_sequence_index')
+        return self.lags_sequence_set[index]
+
+    def get_time_features(self):
+        index = self.get('time_features_index')
+        return self.time_features_set[index]
 
     def save(self):
         """Сохраняет состояние бота на диск"""
@@ -263,15 +265,11 @@ class Bot:
 
         def show_vals(dct):
             for key, value in dct.items():
-                # if isinstance(value, int):
-                #     print(key, value)
                 print(key, value, type(value))
                 if isinstance(value, dict):
                     show_vals(value)
 
         def convert(src_dict):
-            # TODO: разобраться и сделать, чтобы np.int64 и np.float64 не попадали в данные бота,
-            #       иначе не сериализуется
             for key, value in src_dict.items():
                 if isinstance(value, np.int64):
                     src_dict[key] = int(value)
@@ -289,12 +287,15 @@ class Bot:
 
     def get_state(self):
         """Возвращает состояние бота для сохранения на диск"""
+        excluded_values_keys = ['bots_folder']
+        values = {key: self.values[key] for key in self.values if key not in excluded_values_keys}
         return {
             'id': self.id,
             'shift': self.shift,
             'index': self.index,
             'namespace': self.namespace,
-            'values': self.values,
+            'end_shifts': self.end_shifts,
+            'values': values,
             'metrics': self.metrics,
             'train_time': self.train_time,
             'epochs': self.epochs,
@@ -319,9 +320,9 @@ class Bot:
         delimiter = ''
         for i in range(len(self.cuts)):
             if formats[i]:
-                value = f'{self.values[self.changeable[i]]:{formats[i]}}'
+                value = f'{self.values[self.printable[i]]:{formats[i]}}'
             else:
-                value = f'{self.values[self.changeable[i]]}'
+                value = f'{self.values[self.printable[i]]}'
             params += delimiter + f'{self.cuts[i]}: {value}'
             delimiter = ', '
 
@@ -330,7 +331,7 @@ class Bot:
         index = f'{self.index:02d}' if self.index is not None else None
         return (f'ID {self.id:3d} [{self.namespace}.{shift}.{index}], '
                 u'\U0001F39B' + f' [{params}], {self.metric}: {score}, '
-                f't: {self.train_time.seconds:3.0f}s [{self.epochs}]')
+                f't: {self.train_time:3.0f}s [{self.epochs}]')
 
     def __repr__(self):
         return self.__str__(self.repr_formats)
@@ -359,8 +360,7 @@ class Researcher:
     с различными гиперпараметрами, включая параметры нарезки входных данных
     на последовательности.
 
-    :param train_ds: обучающий датасет (HuggingFace Dataset);
-    :param test_ds: тестовый датасет (HuggingFace Dataset);
+    :param datamanager: менеджер данных, формирующий генератор датасета
     :param hp: гиперпараметры (инстанс HyperParameters);
     :param channel_names: список имён каналов данных;
     :param show_graphs: флаг вывода графиков в процессе обучения ботов;
@@ -377,14 +377,15 @@ class Researcher:
     :param save_bots: флаг сохранения ботов на диск;
     """
 
-    def __init__(self, train_ds, test_ds, hp,
+    def __init__(self, datamanager, hp,
                  channel_names,
                  mode='genetic',
                  show_graphs=False,
                  train=True, save_bots=True
                  ):
-        self.train_ds = train_ds
-        self.test_ds = test_ds
+        self.datamanager = datamanager
+        # текущая общая длина временного ряда (для случая, когда используется разное количество данных)
+        self.ts_len = datamanager.get_ts_len()
         self.hp = hp
         self.channel_names = channel_names
         self.show_graphs = show_graphs
@@ -408,14 +409,13 @@ class Researcher:
         self.max_id = 0
         # индекс текущей популяции
         self.shift = None
-        # индекс первого обучаемого бота в смене (актуально для возобновления обучения)
-        self.first_index = None
         # инициализуем генератор случайных чисел
         self.gen = np.random.default_rng()
 
-    def run(self):
+    def _setup(self):
 
-        self.first_index = 0
+        # индекс первого обучаемого бота в смене (актуально для возобновления обучения)
+        first_index = 0
         # индекс начальной смены популяции ботов
         from_shift = 0
         # признак создания популяции ботов с помощью генетики
@@ -450,11 +450,11 @@ class Researcher:
                 ]
                 # пробуем получить индекс следующего бота для обучения
                 if learned_indices:
-                    self.first_index = max(learned_indices) + 1
+                    first_index = max(learned_indices) + 1
                 # если последняя популяция обучена целиком
-                if self.first_index == self.hp.get('n_bots'):
+                if first_index == self.hp.get('n_bots'):
                     from_shift += 1
-                    self.first_index = 0
+                    first_index = 0
                     evolve = True
 
             # если ботов не считано с диска, создаём новую популяцию
@@ -485,6 +485,15 @@ class Researcher:
         else:
             raise ValueError(f'Неизвестный режим обучения: {self.mode}')
 
+        return first_index, from_shift, evolve
+
+    def run(self):
+
+        # индекс первого обучаемого бота в смене (актуально для возобновления обучения)
+        # индекс начальной смены популяции ботов
+        # признак создания популяции ботов с помощью генетики
+        first_index, from_shift, evolve = self._setup()
+
         n_search = self.hp.get('n_search') if self.mode == 'genetic' else 1
 
         # цикл смены популяций ботов
@@ -501,7 +510,7 @@ class Researcher:
                 #  полученными в процессе обучения)
                 self.save_bots(self.population)
                 # сбросим индекс первого бота для обучения, актуальный для первой итерации
-                self.first_index = 0
+                first_index = 0
 
             if self.population is None:
                 print('Не удалось создать популяцию. Обучение прекращено.')
@@ -510,7 +519,7 @@ class Researcher:
             # цикл по популяции ботов
             for bot_id, bot in self.population.items():
                 # пропустим обученных ботов (актуально для первой смены популяций)
-                if bot.index < self.first_index:
+                if bot.index < first_index:
                     print(f'Бот уже обучен, пропущен: {bot}')
                     continue
                 print(f'Популяция #{shift:02d}, bot ID: {bot.id} ({bot.index + 1}/{len(self.population.items())})')
@@ -518,56 +527,78 @@ class Researcher:
                 # если мы дообучаем лучших ботов, установим им другие параметры
                 if self.mode == 'best':
                     bot.values['n_epochs'] = self.hp.get('n_epochs')
+                    bot.end_shifts = [0]
 
                 # получаем модель
-                mb = ModelBuilder(self.train_ds, bot)
+                time_features = bot.get_time_features()
+                mb = ModelBuilder(bot, n_channels=self.datamanager.get_channels_num(),
+                                  n_time_features=len(time_features))
                 model, config = mb.get()
-                time_features = mb.get_time_features()
                 # print(f'model distribution_output: {config.distribution_output}')
 
-                if self.train:
-                    # формируем загрузчик данных
-                    train_dataloader = create_train_dataloader(
-                        config=config,
-                        freq=bot.get('freq'),
-                        data=self.train_ds,
-                        batch_size=bot.get('train_batch_size'),
-                        num_batches_per_epoch=bot.get('num_batches_per_epoch'),
-                        time_features=time_features,
-                    )
-                    # обучаем модель
-                    model, losses, device, train_time, epochs = train(model, config, train_dataloader, bot, self.mode)
+                forecasts = np.empty((self.datamanager.get_channels_num(), config.num_parallel_samples, 0))
+                losses, mase_metrics, smape_metrics = [], [], []
+                train_sec = 0
 
-                    # формируем тестовую выборку и делаем инференс
-                    test_dataloader = create_test_dataloader(
-                        config=config,
-                        freq=bot.get('freq'),
-                        data=self.test_ds,
-                        batch_size=64,
-                        time_features=time_features,
-                    )
-                    forecasts = inference(model, test_dataloader, config, device)
+                for stage_index, end_shift in enumerate(bot.end_shifts):
 
-                    # считаем и оцениваем метрики MASE/sMAPE
-                    mase_metrics, smape_metrics = metrics(self.test_ds, forecasts, bot)
-                    # print('После расчёта метрик')
-                else:
-                    # тестовые значения
-                    losses = self.gen.random(size=(bot.get('n_epochs'), bot.get('num_batches_per_epoch'))).tolist()
-                    train_time = timedelta(0)
-                    epochs = 2
-                    # forecasts = ...
-                    mase_metrics = self.gen.random(size=len(self.train_ds)).tolist()
-                    smape_metrics = self.gen.random(size=len(self.train_ds)).tolist()
+                    # формируем выборки
+                    train_ds = self.datamanager.from_generator(splits=2, split='train', end_shift=end_shift)
+                    test_ds = self.datamanager.from_generator(splits=2, split='test', end_shift=end_shift)
 
+                    if self.train:
+                        # формируем загрузчик данных
+                        train_dataloader = create_train_dataloader(
+                            config=config,
+                            freq=bot.get('freq'),
+                            data=train_ds,
+                            batch_size=bot.get('train_batch_size'),
+                            num_batches_per_epoch=bot.get('num_batches_per_epoch'),
+                            time_features=time_features,
+                        )
+                        # обучаем модель
+                        stage_prefix = f'stage: {stage_index + 1}/{len(bot.end_shifts)} | '
+                        model, stage_losses, device, stage_train_sec, epochs \
+                            = train(model, config, train_dataloader, bot, self.mode, stage_prefix)
+
+                        # формируем тестовую выборку и делаем инференс
+                        test_dataloader = create_test_dataloader(
+                            config=config,
+                            freq=bot.get('freq'),
+                            data=test_ds,
+                            batch_size=64,
+                            time_features=time_features,
+                        )
+                        # shape: (n_channels, num_parallel_samples=100, prediction_len),
+                        forecast = inference(model, test_dataloader, config, device)
+                        forecasts = np.concatenate([forecasts, forecast], axis=2)
+
+                        # считаем и оцениваем метрики MASE/sMAPE
+                        metrics = calc_metrics(test_ds, forecast, bot)
+                        losses.append(stage_losses)
+                        mase_metrics.append(metrics[0])
+                        smape_metrics.append(metrics[1])
+                        train_sec += stage_train_sec
+                    else:
+                        # тестовые значения
+                        stage_losses = self.gen.random(size=(bot.get('n_epochs'), bot.get('num_batches_per_epoch'))).tolist()
+                        epochs = 2
+                        # train_ds, test_ds, forecasts = ...
+                        losses.append(stage_losses)
+                        mase_metrics.append(self.gen.random(size=len(train_ds)).tolist())
+                        smape_metrics.append(self.gen.random(size=len(train_ds)).tolist())
+
+                # print(f'forecasts: {forecasts.shape}')
                 # запоминаем метрики бота
                 bot.metrics = {
                     'losses': losses,
                     'mase': mase_metrics,
                     'smape': smape_metrics,
                 }
-                bot.train_time = train_time
-                bot.epochs += epochs
+                bot.train_time = train_sec
+                # TODO: разобраться с эпохами - они должны быть у бота заданы заранее и задавать их тут не нужно
+                # bot.epochs += epochs
+                bot.epochs = epochs
                 # оценка бота - среднее значение ошибки sMAPE по всем временным рядам
                 bot.score = np.array(smape_metrics).mean()
 
@@ -577,9 +608,9 @@ class Researcher:
 
                 # выводим статистику бота
                 if self.show_graphs:
-                    dashboard(bot.metrics, self.test_ds, forecasts, bot,
+                    dashboard(bot.metrics, test_ds, forecasts, bot,
                               self.channel_names,
-                              total_periods=4,
+                              total_periods=6,
                               name=str(bot)
                               )
                 # освобождаем память
@@ -588,10 +619,7 @@ class Researcher:
                 gc.collect()
 
             # выводим рейтинг 10-ти лучших ботов на текущий цикл
-            print('Рейтинг лучших ботов:')
-            best_bots = _rate_bots(self.bots, 10)
-            for bot in best_bots.values():
-                print(repr(bot))
+            self.print_bots_rating(num=10)
 
     def generate(self, number, mode='random', start_index=0):
         """
@@ -647,6 +675,13 @@ class Researcher:
                 return None
             if keep_hash:
                 self.hashes.append(bot_hash)
+
+        # рассчитаем количество батчей на эпоху так, чтобы все данные поместились в последовательности
+        min_sequence_len = values['prediction_len'] * (1 + values['context_ratio'])
+        n_sequencies_total = len(self.channel_names) * (self.ts_len - min_sequence_len)
+        values['num_batches_per_epoch'] = int(n_sequencies_total / values['train_batch_size']) + 1
+        print(f'ts_len: {self.ts_len}, min_sequence_len: {min_sequence_len}')
+        print(f'n_sequencies_total: {n_sequencies_total}, num_batches_per_epoch: {values["num_batches_per_epoch"]}')
 
         # задаём значения и их хэш боту
         bot.activate(values, bot_hash)
@@ -778,15 +813,12 @@ class Researcher:
             assert list(bots.keys())[-1] == max_id
         return bots, max_id
 
-    # def _connect(self):
-    #     """Определяет папку для хранения/чтения ботов"""
-    #     # если папка на гугл-диске
-    #     if 'MyDrive' in self.bots_folder:
-    #         if not os.path.exists(self.bots_folder):
-    #             drive.mount('/content/drive/')
-    #     elif not os.path.exists(self.bots_folder):
-    #         os.mkdir(self.bots_folder)
-
     def filepath(self):
         """Возвращает шаблон пути для считывания ботов с диска"""
         return f'{self.bots_folder}bot_{self.hp.get("namespace")}_*.jd'
+
+    def print_bots_rating(self, num=10):
+        print('Рейтинг лучших ботов:')
+        best_bots = _rate_bots(self.bots, num)
+        for bot in best_bots.values():
+            print(repr(bot))
