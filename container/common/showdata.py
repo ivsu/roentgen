@@ -78,7 +78,7 @@ def show_time_series_by_year():
         prediction_len=hp.get('prediction_len')
     )
     # формируем полную выборку
-    ds = dm.from_generator(splits=2, split='test')
+    ds = dm.from_generator(splits=2, split='test', end_shift=0)
 
     data = convert_dataset(ds, skip_start_weeks=0, verbose=0)
     time_series_by_year(data)

@@ -2,14 +2,14 @@ import sys
 
 from common.showdata import show_time_series_by_year
 
-POSSIBLE_ARGS = [
+VALID_ARGS = [
     '--show-time-series-by-year',
 ]
 
 
 def print_help():
     print('Список возможных аргументов:')
-    print("\n".join(POSSIBLE_ARGS))
+    print("\n".join(VALID_ARGS))
 
 
 if __name__ == '__main__':
@@ -19,7 +19,7 @@ if __name__ == '__main__':
         raise RuntimeError('Необходимо указать аргументы.')
 
     mode = args[1]
-    if mode not in POSSIBLE_ARGS:
+    if mode not in VALID_ARGS:
         print_help()
 
     if mode == '--show-time-series-by-year':
