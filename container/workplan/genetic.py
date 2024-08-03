@@ -680,8 +680,8 @@ class Researcher:
         min_sequence_len = values['prediction_len'] * (1 + values['context_ratio'])
         n_sequencies_total = len(self.channel_names) * (self.ts_len - min_sequence_len)
         values['num_batches_per_epoch'] = int(n_sequencies_total / values['train_batch_size']) + 1
-        print(f'ts_len: {self.ts_len}, min_sequence_len: {min_sequence_len}')
-        print(f'n_sequencies_total: {n_sequencies_total}, num_batches_per_epoch: {values["num_batches_per_epoch"]}')
+        # print(f'ts_len: {self.ts_len}, min_sequence_len: {min_sequence_len}')
+        # print(f'n_sequencies_total: {n_sequencies_total}, num_batches_per_epoch: {values["num_batches_per_epoch"]}')
 
         # задаём значения и их хэш боту
         bot.activate(values, bot_hash)
