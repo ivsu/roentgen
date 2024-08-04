@@ -437,7 +437,6 @@ class Researcher:
 
                 # tmp: рефакторинг ботов
                 for bot in self.bots:
-                    values =  bot.values
                     if 'num_batches_per_epoch' in bot.values:
                         nb = bot.values['num_batches_per_epoch']
                         num_batches_per_epoch = self._count_batches_per_epoch(bot)
@@ -447,7 +446,7 @@ class Researcher:
                             bot.num_batches_per_epoch = nb
                             # bot.save()
                     else:
-                        pass
+                        print(f'Бот не содержит значения num_batches_per_epoc: {bot}')
 
                 # восстанавливаем последнюю популяцию (боты отсортированы по ID)
                 self.population = {
