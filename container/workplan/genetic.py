@@ -209,6 +209,8 @@ class Bot:
         self.epochs = 0
         # время, которое обучался бот
         self.train_time = 0
+        # количество батчей в эпохе - рассчётное значение
+        self.num_batches_per_epoch = None
 
         # если передано состояние, восстанавливаем бота из него
         if state:
@@ -299,6 +301,7 @@ class Bot:
             'metrics': self.metrics,
             'train_time': self.train_time,
             'epochs': self.epochs,
+            'num_batches_per_epoch': self.num_batches_per_epoch,
             'score': self.score,
             'hash': self.hash,
         }
@@ -431,6 +434,21 @@ class Researcher:
             if shifts:
                 # получаем индекс последней популяции ботов
                 from_shift = max(shifts)
+
+                # tmp: рефакторинг ботов
+                for bot in self.bots:
+                    values =  bot.values
+                    if 'num_batches_per_epoch' in bot.values:
+                        nb = bot.values['num_batches_per_epoch']
+                        num_batches_per_epoch = self._count_batches_per_epoch(bot)
+                        if nb != num_batches_per_epoch:
+                            print(f'Бота нужно удалить [{nb} != {num_batches_per_epoch}]: {bot}')
+                        else:
+                            bot.num_batches_per_epoch = nb
+                            # bot.save()
+                    else:
+                        pass
+
                 # восстанавливаем последнюю популяцию (боты отсортированы по ID)
                 self.population = {
                     bot.id: bot
@@ -553,7 +571,7 @@ class Researcher:
                             freq=bot.get('freq'),
                             data=train_ds,
                             batch_size=bot.get('train_batch_size'),
-                            num_batches_per_epoch=bot.get('num_batches_per_epoch'),
+                            num_batches_per_epoch=bot.num_batches_per_epoch,
                             time_features=time_features,
                         )
                         # обучаем модель
@@ -581,7 +599,7 @@ class Researcher:
                         train_sec += stage_train_sec
                     else:
                         # тестовые значения
-                        stage_losses = self.gen.random(size=(bot.get('n_epochs'), bot.get('num_batches_per_epoch'))).tolist()
+                        stage_losses = self.gen.random(size=(bot.get('n_epochs'), bot.num_batches_per_epoch)).tolist()
                         epochs = 2
                         # train_ds, test_ds, forecasts = ...
                         losses.append(stage_losses)
@@ -677,9 +695,7 @@ class Researcher:
                 self.hashes.append(bot_hash)
 
         # рассчитаем количество батчей на эпоху так, чтобы все данные поместились в последовательности
-        min_sequence_len = values['prediction_len'] * (1 + values['context_ratio'])
-        n_sequencies_total = len(self.channel_names) * (self.ts_len - min_sequence_len)
-        values['num_batches_per_epoch'] = int(n_sequencies_total / values['train_batch_size']) + 1
+        bot.num_batches_per_epoch = self._count_batches_per_epoch(bot.values)
 
         # задаём значения и их хэш боту
         bot.activate(values, bot_hash)
@@ -800,6 +816,12 @@ class Researcher:
             bots = dict(sorted(bots.items()))
             assert list(bots.keys())[-1] == max_id
         return bots, max_id
+
+    def _count_batches_per_epoch(self, values):
+        """Рассчитывает количество батчей на эпоху так, чтобы все данные поместились в последовательности"""
+        min_sequence_len = values['prediction_len'] * (1 + values['context_ratio'])
+        n_sequencies_total = len(self.channel_names) * (self.ts_len - min_sequence_len)
+        return int(n_sequencies_total / values['train_batch_size']) + 1
 
     def filepath(self):
         """Возвращает шаблон пути для считывания ботов с диска"""
