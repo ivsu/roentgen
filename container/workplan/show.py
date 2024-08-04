@@ -23,7 +23,6 @@ def time_series_by_year(data: list[dict]):
             x=np.arange(len(target)) + 1,
             y=target,
             mode='lines',
-            # line=dict(width=0.5, color='rgba(192, 192, 192, 1)'),
             name=years[i],
         ))
 
@@ -221,7 +220,7 @@ def dashboard(metrics, dataset, forecasts, hp,
                 x=epochs, y=loss_mean,
                 name=f'Stage {stage}',
                 mode='lines',
-                line=dict(width=0.5, color='rgba(34, 139, 34, 0.3)'),  # forestgreen
+                line=dict(width=0.5, color='rgba(34, 139, 34, 0.5)'),  # forestgreen
                 # showlegend=stage == 0,
             ),
             row=1, col=1

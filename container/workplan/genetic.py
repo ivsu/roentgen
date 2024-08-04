@@ -680,26 +680,17 @@ class Researcher:
         min_sequence_len = values['prediction_len'] * (1 + values['context_ratio'])
         n_sequencies_total = len(self.channel_names) * (self.ts_len - min_sequence_len)
         values['num_batches_per_epoch'] = int(n_sequencies_total / values['train_batch_size']) + 1
-        # print(f'ts_len: {self.ts_len}, min_sequence_len: {min_sequence_len}')
-        # print(f'n_sequencies_total: {n_sequencies_total}, num_batches_per_epoch: {values["num_batches_per_epoch"]}')
 
         # задаём значения и их хэш боту
         bot.activate(values, bot_hash)
 
         return bot
 
-    def get_best_bots(self):
-        """Определяет и возвращает словарь лучших ботов
-        """
+    def get_best_bots(self) -> dict[Bot]:
+        """Определяет и возвращает лучших ботов"""
         # количество отбираемых ботов равно количеству выживших
         best_bots = _rate_bots(self.bots, self.hp.get('n_survived'))
 
-        # # получаем пары (ID, оценка)
-        # scores = [(bot_id, bot.score) for bot_id, bot in self.bots.items()]
-        # # из отсортированного списка берём заданное количество лучших пар (ID, оценка)
-        # best_pairs = sorted(scores, key=lambda t: t[1])[:number]
-        # # возвращаем словарь лучших ботов
-        # best_bots = {t[0]: self.bots[t[0]] for t in best_pairs}
         logger.info('Лучшие боты:')
         for bot in best_bots.values():
             logger.info(repr(bot))
@@ -739,7 +730,6 @@ class Researcher:
             # создадим бота и инициализируем его случайным образом
             bot = self.create_bot('random', index, keep_hash=False)
             # получаем ID двух уникальных лучших родителей
-            # parent_ids = random.sample(best_ids, k=2)
             parent_ids = self.gen.choice(best_ids, size=2)
             # получаем имена параметров для мутации
             mut_names = self._mutation()
@@ -751,7 +741,6 @@ class Researcher:
                 if key not in mut_names:
                     # берём случайное значение у одного из родителей
                     values[key] = self.bots[
-                        # random.choice(parent_ids)
                         self.gen.choice(parent_ids)
                     ].values[key]
 
@@ -775,7 +764,6 @@ class Researcher:
         """Возвращает список имён параметров для случайной мутации"""
         # начнём с 3-х и будем уменьшать на 1 каждые две смены популяции до 1-го
         n_mutations = max(3 - self.shift // 2, 1)
-        # return random.sample(list(self.hp.space.keys()), k=n_mutations)
         return list(self.gen.choice(list(self.hp.space.keys()), size=n_mutations))
 
     def save_bots(self, bots):
