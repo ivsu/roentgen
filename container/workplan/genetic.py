@@ -436,10 +436,10 @@ class Researcher:
                 from_shift = max(shifts)
 
                 # tmp: рефакторинг ботов
-                for bot in self.bots:
+                for bot_id, bot in self.bots.items():
                     if 'num_batches_per_epoch' in bot.values:
                         nb = bot.values['num_batches_per_epoch']
-                        num_batches_per_epoch = self._count_batches_per_epoch(bot)
+                        num_batches_per_epoch = self._count_batches_per_epoch(bot.values)
                         if nb != num_batches_per_epoch:
                             print(f'Бота нужно удалить [{nb} != {num_batches_per_epoch}]: {bot}')
                         else:
