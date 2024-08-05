@@ -23,7 +23,7 @@ class Hyperparameters:
             # частота данных
             freq='W-SUN',
             # длина предсказываемой последовательности
-            prediction_len=4,
+            prediction_len=5,
             # количество эпох на прогрев модели
             warmup_epochs=5,
             # папка для хранения ботов
@@ -40,7 +40,7 @@ class Hyperparameters:
             # количество случайных ботов в каждой новой популяции
             n_random=5,
             # сдвиг на количество шагов (с конца) при обучении бота на временном ряде разной длины
-            end_shifts=[-16, -12, -8, -4, 0]
+            end_shifts=[-20, -15, -10, -5, 0]
         )
         # имена фиксированных параметров, которые включаются в хэш бота
         self.hashable = ['namespace', 'prediction_len', 'warmup_epochs', 'n_epochs', 'end_shifts']
