@@ -193,7 +193,15 @@ class Bot:
         :param state: словарь состояния бота
         :param bot_id: ID бота, с которым он будет создан
         :param shift: индекс популяции, к которой относится бот
-        :param index: индекс бота в популяции
+            идентификация бота
+            определение первой обучающей смены
+            колучество мутаций на определённой смене
+        :param index: индекс бота в популяции:
+            сохраняется на диск, выводится в обозначениии бота 00.00
+            +по нему определяется первый обучаемый бот и уже обученные боты (< first_index)
+            в self.mode == 'best' лучшие боты переиндексируются (в setup),
+            индексация ботов осуществляется в populate
+            в generate индексы задаются начиная со start_index
         """
         # папка, где хранится бот
         self.bots_folder = hp.get('bots_folder')
@@ -209,12 +217,11 @@ class Bot:
         self.epochs = 0
         # время, которое обучался бот
         self.train_time = 0
-        # количество батчей в эпохе - рассчётное значение
-        self.num_batches_per_epoch = None
 
         # если передано состояние, восстанавливаем бота из него
         if state:
             self.from_state(state)
+            self.namespace = self.get('namespace')
         # иначе - новый бот
         else:
             self.id = bot_id
@@ -222,12 +229,10 @@ class Bot:
             self.index = index
             # пространство имён, к которому относится бот
             self.namespace = hp.get('namespace')
-            # сдвиг на количество шагов (с конца) при обучении бота на временном ряде разной длины
-            self.end_shifts = hp.get('end_shifts')
 
         # список ключей изменяемых параметров
         self.changeable = [k for k in hp.space.keys()]
-        self.printable = self.changeable + ['num_batches_per_epoch']
+        self.printable = self.changeable + [k for k in hp.calculated.keys()]
         # возможные временные лаги и фичи, заданные в гиперпараметрах
         self.lags_sequence_set = hp.lags_sequence_set.copy()
         self.time_features_set = hp.time_features_set.copy()
@@ -295,13 +300,10 @@ class Bot:
             'id': self.id,
             'shift': self.shift,
             'index': self.index,
-            'namespace': self.namespace,
-            'end_shifts': self.end_shifts,
             'values': values,
             'metrics': self.metrics,
             'train_time': self.train_time,
             'epochs': self.epochs,
-            'num_batches_per_epoch': self.num_batches_per_epoch,
             'score': self.score,
             'hash': self.hash,
         }
@@ -387,8 +389,12 @@ class Researcher:
                  train=True, save_bots=True
                  ):
         self.datamanager = datamanager
-        # текущая общая длина временного ряда (для случая, когда используется разное количество данных)
-        self.ts_len = datamanager.get_ts_len()
+        # контекст, передаваемый для генерации гиперпараметров ботов
+        self.context = {
+            # текущая общая длина временного ряда (для случая, когда используется разное количество данных)
+            'ts_len': datamanager.get_ts_len(),
+            'n_channels': len(channel_names)
+        }
         self.hp = hp
         self.channel_names = channel_names
         self.show_graphs = show_graphs
@@ -416,37 +422,33 @@ class Researcher:
         self.gen = np.random.default_rng()
 
     def _setup(self):
+        """
+        Пробует считать ботов с диска и определяет режим старта генетического алгоритма.
 
+        :return: * first_index - индекс первого обучаемого бота в смене (актуально для возобновления обучени);
+                 * from_shift - индекс начальной смены популяции ботов;
+                 * evolve - признак создания популяции ботов с помощью генетики.
+        """
         # индекс первого обучаемого бота в смене (актуально для возобновления обучения)
-        first_index = 0
+        # first_index = 0
         # индекс начальной смены популяции ботов
         from_shift = 0
         # признак создания популяции ботов с помощью генетики
         evolve = False
+        # количество смен популяций ботов
+        n_search = 1
 
         if self.mode == 'genetic':
             # считываем ботов с диска
             self.bots, self.max_id = self.load_bots()
             # восстанавливаем хэши
             self.hashes = [bot.hash for bot in self.bots.values()]
+            n_search = self.hp.get('n_search')
             # получаем индекс текущей популяции и индекс последнего бота в ней
             shifts = [bot.shift for bot in self.bots.values()]
             if shifts:
                 # получаем индекс последней популяции ботов
                 from_shift = max(shifts)
-
-                # tmp: рефакторинг ботов
-                for bot_id, bot in self.bots.items():
-                    if 'num_batches_per_epoch' in bot.values:
-                        nb = bot.values['num_batches_per_epoch']
-                        num_batches_per_epoch = self._count_batches_per_epoch(bot.values)
-                        if nb != num_batches_per_epoch:
-                            print(f'Бота нужно удалить [{nb} != {num_batches_per_epoch}]: {bot}')
-                        else:
-                            bot.num_batches_per_epoch = nb
-                            # bot.save()
-                    else:
-                        print(f'Бот не содержит значения num_batches_per_epoc: {bot}')
 
                 # восстанавливаем последнюю популяцию (боты отсортированы по ID)
                 self.population = {
@@ -466,12 +468,13 @@ class Researcher:
                     if bot.score
                 ]
                 # пробуем получить индекс следующего бота для обучения
-                if learned_indices:
-                    first_index = max(learned_indices) + 1
+                # if learned_indices:
+                #     first_index = max(learned_indices) + 1
                 # если последняя популяция обучена целиком
-                if first_index == self.hp.get('n_bots'):
+                # if first_index == self.hp.get('n_bots'):
+                if len(learned_indices) == self.hp.get('n_bots'):
                     from_shift += 1
-                    first_index = 0
+                    # first_index = 0
                     evolve = True
 
             # если ботов не считано с диска, создаём новую популяцию
@@ -499,22 +502,44 @@ class Researcher:
             # остальных ботов удаляем, чтобы корректно рассчитывался рейтинг
             self.bots = self.population
 
+        elif self.mode == 'update':
+            # считываем всех ботов с диска и формируем из них популяцию
+            self.bots, _ = self.load_bots()
+
+            # TODO: tmp - рефакторинг ботов
+            # for bot_id, bot in self.bots.items():
+            #     if 'num_batches_per_epoch' in bot.values:
+            #         nb = bot.values['num_batches_per_epoch']
+            #         num_batches_per_epoch = self._count_batches_per_epoch(bot.values)
+            #         if nb != num_batches_per_epoch:
+            #             print(f'Рейтинг бота обнулён [{nb} != {num_batches_per_epoch}]: {bot}')
+            #             bot.score = None
+            #         else:
+            #             bot.num_batches_per_epoch = nb
+            #
+            #         del bot.values['num_batches_per_epoch']
+            #         bot.save()
+
+            self.population = self.bots
+
         else:
             raise ValueError(f'Неизвестный режим обучения: {self.mode}')
 
-        return first_index, from_shift, evolve
+        # return first_index, from_shift, evolve
+        return from_shift, evolve, n_search
 
     def run(self):
 
-        # индекс первого обучаемого бота в смене (актуально для возобновления обучения)
-        # индекс начальной смены популяции ботов
-        # признак создания популяции ботов с помощью генетики
-        first_index, from_shift, evolve = self._setup()
-
-        n_search = self.hp.get('n_search') if self.mode == 'genetic' else 1
+        # first_index, from_shift, evolve = self._setup()
+        from_shift, evolve, n_search = self._setup()
 
         # цикл смены популяций ботов
         for shift in range(from_shift, n_search):
+
+            # TODO:
+            #   задача - обучить необученных из всех ботов и сохранить на диск
+            #   обработка имеющихся ботов, в т.ч. обучение, с сохранением на диск
+            #   отбор ботов по текущей смене
             self.shift = shift
 
             # если установлен флаг эволюционирования или смена не первая
@@ -527,7 +552,7 @@ class Researcher:
                 #  полученными в процессе обучения)
                 self.save_bots(self.population)
                 # сбросим индекс первого бота для обучения, актуальный для первой итерации
-                first_index = 0
+                # first_index = 0
 
             if self.population is None:
                 print('Не удалось создать популяцию. Обучение прекращено.')
@@ -536,7 +561,8 @@ class Researcher:
             # цикл по популяции ботов
             for bot_id, bot in self.population.items():
                 # пропустим обученных ботов (актуально для первой смены популяций)
-                if bot.index < first_index:
+                # if bot.index < first_index:
+                if bot.score:
                     print(f'Бот уже обучен, пропущен: {bot}')
                     continue
                 print(f'Популяция #{shift:02d}, bot ID: {bot.id} ({bot.index + 1}/{len(self.population.items())})')
@@ -544,7 +570,7 @@ class Researcher:
                 # если мы дообучаем лучших ботов, установим им другие параметры
                 if self.mode == 'best':
                     bot.values['n_epochs'] = self.hp.get('n_epochs')
-                    bot.end_shifts = [0]
+                    bot.values['end_shifts'] = [0]
 
                 # получаем модель
                 time_features = bot.get_time_features()
@@ -557,7 +583,7 @@ class Researcher:
                 losses, mase_metrics, smape_metrics = [], [], []
                 train_sec = 0
 
-                for stage_index, end_shift in enumerate(bot.end_shifts):
+                for stage_index, end_shift in enumerate(bot.get('end_shifts')):
 
                     # формируем выборки
                     train_ds = self.datamanager.from_generator(splits=2, split='train', end_shift=end_shift)
@@ -570,11 +596,11 @@ class Researcher:
                             freq=bot.get('freq'),
                             data=train_ds,
                             batch_size=bot.get('train_batch_size'),
-                            num_batches_per_epoch=bot.num_batches_per_epoch,
+                            num_batches_per_epoch=bot.get('num_batches_per_epoch'),
                             time_features=time_features,
                         )
                         # обучаем модель
-                        stage_prefix = f'stage: {stage_index + 1}/{len(bot.end_shifts)} | '
+                        stage_prefix = f'stage: {stage_index + 1}/{len(bot.get("end_shifts"))} | '
                         model, stage_losses, device, stage_train_sec, epochs \
                             = train(model, config, train_dataloader, bot, self.mode, stage_prefix)
 
@@ -598,7 +624,8 @@ class Researcher:
                         train_sec += stage_train_sec
                     else:
                         # тестовые значения
-                        stage_losses = self.gen.random(size=(bot.get('n_epochs'), bot.num_batches_per_epoch)).tolist()
+                        stage_losses = self.gen.random(size=(bot.get('n_epochs'),
+                                                             bot.get('num_batches_per_epoch'))).tolist()
                         epochs = 2
                         # train_ds, test_ds, forecasts = ...
                         losses.append(stage_losses)
@@ -683,18 +710,15 @@ class Researcher:
 
         # создаём дефолтного бота, если задано
         if mode == 'default':
-            values, bot_hash = self.hp.generate(mode, self.hashes)
+            values, bot_hash = self.hp.generate(mode, self.hashes, context=self.context)
         else:
             # инициализуем значения гиперпараметров случайным образом
-            values, bot_hash = self.hp.generate(mode, self.hashes,
+            values, bot_hash = self.hp.generate(mode, self.hashes, context=self.context,
                                                 current_values=values)
             if values is None:
                 return None
             if keep_hash:
                 self.hashes.append(bot_hash)
-
-        # рассчитаем количество батчей на эпоху так, чтобы все данные поместились в последовательности
-        bot.num_batches_per_epoch = self._count_batches_per_epoch(bot.values)
 
         # задаём значения и их хэш боту
         bot.activate(values, bot_hash)
@@ -759,6 +783,8 @@ class Researcher:
                         self.gen.choice(parent_ids)
                     ].values[key]
 
+            # пересчитываем вычисляемые параметры
+            self.hp.calculate(values, self.context)
             # установим хэш для новых значений
             bot_hash = self.hp.get_hash(values)
             self.hashes.append(bot_hash)
@@ -815,12 +841,6 @@ class Researcher:
             bots = dict(sorted(bots.items()))
             assert list(bots.keys())[-1] == max_id
         return bots, max_id
-
-    def _count_batches_per_epoch(self, values):
-        """Рассчитывает количество батчей на эпоху так, чтобы все данные поместились в последовательности"""
-        min_sequence_len = values['prediction_len'] * (1 + values['context_ratio'])
-        n_sequencies_total = len(self.channel_names) * (self.ts_len - min_sequence_len)
-        return int(n_sequencies_total / values['train_batch_size']) + 1
 
     def filepath(self):
         """Возвращает шаблон пути для считывания ботов с диска"""

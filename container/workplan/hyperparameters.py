@@ -42,6 +42,8 @@ class Hyperparameters:
             # сдвиг на количество шагов (с конца) при обучении бота на временном ряде разной длины
             end_shifts=[-16, -12, -8, -4, 0]
         )
+        # имена фиксированных параметров, которые включаются в хэш бота
+        self.hashable = ['namespace', 'prediction_len', 'warmup_epochs', 'n_epochs', 'end_shifts']
         # дополнительные признаки - временные лаги - на сколько недель мы "смотрим назад"
         self.lags_sequence_set = [
             [1, 2, 3, 4, 5, 51, 52, 53, 103, 104, 105],
@@ -75,7 +77,11 @@ class Hyperparameters:
             decoder_layers=[1, 2, 4, 8],
             d_model=[8, 16, 32, 64],
         )
-        # индексы гиперпараметров по умолчанию
+        # расчётные параметры
+        self.calculated = dict(
+            num_batches_per_epoch=None,
+        )
+        # индексы динамических гиперпараметров по умолчанию (для режима default)
         self.defaults = [3, 1, 4, 0, 1, 1, 1, 1]
         assert len(self.space) == len(self.defaults)
         # ключи параметров данных (для изменения только параметров данных у лучших ботов)
@@ -85,13 +91,13 @@ class Hyperparameters:
         self.gen = np.random.default_rng()
 
     def get(self, key):
-        """Возвращает значение гиперпараметра по его ключу"""
+        """Возвращает значение фиксированного гиперпараметра по его ключу"""
         if key in self.fixed:
             return self.fixed[key]
         else:
-            raise KeyError(f'Не задан гиперпараметр с ключом: {key}')
+            raise KeyError(f'Не задан фиксированный гиперпараметр с ключом: {key}')
 
-    def generate(self, mode, hashes, current_values=None):
+    def generate(self, mode, hashes, context, current_values=None):
         """
         Генерирует набор значений гиперпараметров в заданном режиме.
 
@@ -99,15 +105,18 @@ class Hyperparameters:
         :param hashes: список хэшей имеющихся гиперпараметров для проверки
                 новых ботов на уникальность
         :param current_values: имеющийся набор значений для режима data_nearest
+        :param context: переменные, передаваемые из Researcher, для определения рассчитываемых параметров
         :returns: словарь гиперпараметров и их хэш
         """
-        # сначала копируем значения фиксированных параметров
-        values = self.fixed.copy()
+        # сначала копируем значения фиксированных параметров и добавляем ключи для расчитываемых
+        values = self.fixed.copy() | self.calculated.copy()
 
         # установка параметров по умолчанию
         if mode == 'default':
             for i, key in enumerate(self.space):
                 values[key] = self.space[key][self.defaults[i]]
+            # рассчитываем вычисляемые параметры
+            self.calculate(values, context)
             return values, self.get_hash(values)
 
         # для режима поиска ближайшего значения сформируем исходную маску
@@ -140,7 +149,7 @@ class Hyperparameters:
                 m_lookup = []
                 for distance in range(1, 3):
 
-                    mask = self.get_square_mask(m_shape, current_pos, distance)
+                    mask = self._get_square_mask(m_shape, current_pos, distance)
                     m_lookup = matrix * mask
                     # получаем индексы ненулевых значений по каждому измерению
                     nonzero = np.asarray(np.nonzero(m_lookup), dtype=np.int32)
@@ -176,6 +185,8 @@ class Hyperparameters:
             else:
                 raise KeyError("Неверный режим: " + mode)
 
+            # рассчитываем вычисляемые параметры
+            self.calculate(values, context)
             # формируем хэш полученного набора значений
             bot_hash = self.get_hash(values)
             # проверяем на уникальность
@@ -191,7 +202,15 @@ class Hyperparameters:
 
         return values, bot_hash
 
-    def get_square_mask(self, shape, pos, distance):
+    @classmethod
+    def calculate(cls, values, context):
+        """Рассчитывает количество батчей на эпоху так, чтобы все данные поместились в последовательности"""
+        min_sequence_len = values['prediction_len'] * (1 + values['context_ratio'])
+        n_sequencies_total = context['n_channels'] * (context['ts_len'] - min_sequence_len)
+        values['num_batches_per_epoch'] = int(n_sequencies_total / values['train_batch_size']) + 1
+
+    @classmethod
+    def _get_square_mask(cls, shape, pos, distance):
         """
         Формирует квадратную маску по краям заданной области.
         Args:
@@ -235,13 +254,17 @@ class Hyperparameters:
         """Возвращает хэш значений параметров"""
         if values:
             keys = sorted(values.keys())
-            s = "".join(f"{str(k)}={str(values[k])}" for k in keys)
+            s = "".join(
+                f"{str(k)}={str(values[k])}"
+                for k in keys
+                if k not in self.fixed or k in self.hashable
+            )
             return hashlib.sha256(s.encode("utf-8")).hexdigest()[:32]
         raise Exception('Попытка вычисления хэша на незаданных values')
 
     def repr(self, values):
         output = "Параметры:\n"
-        max_len = max([len(key) for key in dict(self.fixed, **self.space).keys()])
+        max_len = max([len(key) for key in dict(self.fixed, **self.space, **self.calculated).keys()])
         for k, v in values.items():
             output += f'{k:>{max_len}}: {v}\n'
         return output
@@ -252,6 +275,13 @@ if __name__ == '__main__':
     logger.setup(level=logger.INFO, layout='debug')
 
     check_hp = Hyperparameters()
+
+    check_context = {
+        # текущая общая длина временного ряда (для случая, когда используется разное количество данных)
+        'ts_len': 126,
+        'n_channels': 10
+    }
+
     # сгенерируем набор дефолтных гиперпараметров и посмотрим на их значения
-    values, bot_hash = check_hp.generate(mode='default', hashes=[])
-    print(check_hp.repr(values))
+    check_values, check_bot_hash = check_hp.generate(mode='default', hashes=[], context=check_context)
+    print(check_hp.repr(check_values))

@@ -36,7 +36,7 @@ if __name__ == '__main__':
     researcher = Researcher(datamanager, hp,
                             CHANNEL_NAMES,
                             mode='genetic',
-                            # mode='test'  ,
+                            # mode='update',
                             show_graphs=True,
                             train=True, save_bots=True)
     researcher.run()
