@@ -147,6 +147,9 @@ def dashboard(metrics, dataset, forecasts, hp,
         fact=dataset[i]["target"][-total_periods * prediction_len:],
     ) for i, _ in enumerate(channel_names)]
 
+    # print(f'index:\n{index[-forecast_periods:]}')
+    # print(f'plan:\n{planfact[0]["plan"]}')
+
     # стандартное отклонение ±1
     fig.add_trace(
         go.Scatter(

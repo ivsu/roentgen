@@ -654,7 +654,7 @@ class Researcher:
                 if self.show_graphs:
                     dashboard(bot.metrics, test_ds, forecasts, bot,
                               self.channel_names,
-                              total_periods=6,
+                              total_periods=7,
                               name=str(bot)
                               )
                 # освобождаем память
