@@ -1,9 +1,11 @@
 import sys
 
 from common.showdata import show_time_series_by_year
+from workplan.planner import planner
 
 VALID_ARGS = [
     '--show-time-series-by-year',
+    '--search-hyperparameters',
 ]
 
 
@@ -24,3 +26,5 @@ if __name__ == '__main__':
 
     if mode == '--show-time-series-by-year':
         show_time_series_by_year()
+    elif mode == '--search-hyperparameters':
+        planner()

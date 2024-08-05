@@ -9,9 +9,7 @@ from common.logger import Logger
 logger = Logger(__name__)
 
 
-if __name__ == '__main__':
-
-    logger.setup(level=logger.INFO, layout='debug')
+def planner():
 
     # создаём инстанс гиперпараметров
     hp = Hyperparameters()
@@ -40,3 +38,10 @@ if __name__ == '__main__':
                             show_graphs=True,
                             train=True, save_bots=True)
     researcher.run()
+
+
+if __name__ == '__main__':
+
+    logger.setup(level=logger.INFO, layout='debug')
+
+    planner()
