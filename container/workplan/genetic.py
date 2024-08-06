@@ -16,6 +16,7 @@ from workplan.modelbuilder import ModelBuilder
 from workplan.show import dashboard
 from workplan.dataloaders import create_train_dataloader, create_test_dataloader
 from workplan.schedulers import WarmAndDecayScheduler
+from workplan.datamanager import CHANNEL_NAMES
 from common.logger import Logger
 
 logger = Logger(__name__)
@@ -150,16 +151,32 @@ def calc_metrics(dataset, forecasts, bot):
     mase_metric = load("evaluate-metric/mase")
     smape_metric = load("evaluate-metric/smape")
 
+    # сложим значения по КТ и МРТ с разным контрастным усилением, т.к. эти исследования выполняются
+    # врачами с той же самой квалификацией
+    forecasts_converted = np.concatenate([
+        forecasts[0:3].sum(axis=0, keepdims=True),
+        forecasts[3:6].sum(axis=0, keepdims=True),
+        forecasts[6:],
+    ])
+    target_converted = np.array([item['target'] for item in list(dataset)])
+    target_converted = np.concatenate([
+        target_converted[0:3].sum(axis=0, keepdims=True),
+        target_converted[3:6].sum(axis=0, keepdims=True),
+        target_converted[6:],
+    ])
+
     # возмём медианное по батчам значение прогноза: (channels, n_batches, prediction_len) -> (channels, prediction_len)
-    forecast_median = np.median(forecasts, axis=1)
+    forecast_median = np.median(forecasts_converted, axis=1)
 
     mase_metrics = []
     smape_metrics = []
     # по каждому временному ряду датасета
-    for item_id, ts in enumerate(dataset):
-        training_data = ts["target"][:-prediction_len]
-        ground_truth = ts["target"][-prediction_len:]
-        # исключим NaN на входе (дни, когда торгов не было) из расчёта метрик
+    # for item_id, ts in enumerate(dataset):
+    for item_id in range(target_converted.shape[0]):
+        ts = target_converted[item_id]
+        training_data = ts[:-prediction_len]
+        ground_truth = ts[-prediction_len:]
+        # исключим NaN на входе (дни, когда не было данных) из расчёта метрик
         past_mask = np.isnan(training_data)
         future_mask = np.isnan(ground_truth)
 
@@ -367,7 +384,6 @@ class Researcher:
 
     :param datamanager: менеджер данных, формирующий генератор датасета
     :param hp: гиперпараметры (инстанс HyperParameters);
-    :param channel_names: список имён каналов данных;
     :param show_graphs: флаг вывода графиков в процессе обучения ботов;
     :param mode: режим работы:
         genetic - генерация и обучение ботов генетическим алгоритмом;
@@ -383,7 +399,6 @@ class Researcher:
     """
 
     def __init__(self, datamanager, hp,
-                 channel_names,
                  mode='genetic',
                  show_graphs=False,
                  train=True, save_bots=True
@@ -393,10 +408,9 @@ class Researcher:
         self.context = {
             # текущая общая длина временного ряда (для случая, когда используется разное количество данных)
             'ts_len': datamanager.get_ts_len(),
-            'n_channels': len(channel_names)
+            'n_channels': len(CHANNEL_NAMES)
         }
         self.hp = hp
-        self.channel_names = channel_names
         self.show_graphs = show_graphs
         self.mode = mode
         self.train = train
@@ -653,7 +667,6 @@ class Researcher:
                 # выводим статистику бота
                 if self.show_graphs:
                     dashboard(bot.metrics, test_ds, forecasts, bot,
-                              self.channel_names,
                               total_periods=7,
                               name=str(bot)
                               )

@@ -4,6 +4,7 @@ import pandas as pd
 from gluonts.dataset.field_names import FieldName
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+from workplan.datamanager import CHANNEL_NAMES,  COLLAPSED_CHANNEL_NAMES
 
 
 def time_series_by_year(data: list[dict]):
@@ -58,15 +59,14 @@ def time_series_by_year(data: list[dict]):
     fig.show()
 
 
-def dashboard(metrics, dataset, forecasts, hp,
-              channel_names, total_periods, name):
+def dashboard(metrics, dataset, forecasts, hp, total_periods, name):
 
     metrics = metrics.copy()
 
     fig = make_subplots(
         rows=1, cols=3,
         subplot_titles=('Функция ошибки', 'MASE/sMAPE',
-                        # f'Прогноз/факт [{channel_names[ts_index]}]')
+                        # f'Прогноз/факт [{CHANNEL_NAMES[ts_index]}]')
                         f'Прогноз/факт [...]')
     )
 
@@ -130,7 +130,7 @@ def dashboard(metrics, dataset, forecasts, hp,
     fig.add_trace(
         go.Scatter(
             x=mase, y=smape,
-            text=channel_names, textposition="top center",
+            text=COLLAPSED_CHANNEL_NAMES, textposition="top center",
             mode='markers+text',
             # marker_size=[40, 60, 80, 100]
             name="Метрики",
@@ -145,7 +145,7 @@ def dashboard(metrics, dataset, forecasts, hp,
         std_minus=forecasts[i].mean(axis=0) - forecasts[i].std(axis=0),
         plan=np.median(forecasts[i], axis=0),
         fact=dataset[i]["target"][-total_periods * prediction_len:],
-    ) for i, _ in enumerate(channel_names)]
+    ) for i, _ in enumerate(CHANNEL_NAMES)]
 
     # print(f'index:\n{index[-forecast_periods:]}')
     # print(f'plan:\n{planfact[0]["plan"]}')
@@ -196,7 +196,7 @@ def dashboard(metrics, dataset, forecasts, hp,
     )
 
     filter_buttons = []
-    for i, channel in enumerate(channel_names):
+    for i, channel in enumerate(CHANNEL_NAMES):
         filter_buttons.append(dict(
             args=[dict(
                 y=[v for v in planfact[i].values()],
@@ -206,7 +206,7 @@ def dashboard(metrics, dataset, forecasts, hp,
                 dict(layout={'annotations': [{'title': {'text': 'Stackoverflow'}}]}),
                 # layout.annotations[0].update(text="Stackoverflow")
                 # dict(subplot_titles=('Функция ошибки', 'MASE/sMAPE',
-                #                      f'Прогноз/факт [{channel_names[i]}]')),
+                #                      f'Прогноз/факт [{CHANNEL_NAMES[i]}]')),
                 [4, 5, 6, 7]
             ],
             label=channel,

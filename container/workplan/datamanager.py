@@ -17,6 +17,7 @@ logger = Logger(__name__)
 
 # текстовые метки каналов данных
 CHANNEL_NAMES = ['kt', 'kt_ce1', 'kt_ce2', 'mrt', 'mrt_ce1', 'mrt_ce2', 'rg', 'flg', 'mmg', 'dens']
+COLLAPSED_CHANNEL_NAMES = ['kt', 'mrt', 'rg', 'flg', 'mmg', 'dens']
 # словарь с именами и индексами каналов данных
 CHANNEL_INDEX = {name: ch for ch, name in enumerate(CHANNEL_NAMES)}
 

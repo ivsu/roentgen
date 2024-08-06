@@ -1,7 +1,7 @@
 import os
 
 from workplan.hyperparameters import Hyperparameters
-from workplan.datamanager import DataManager, CHANNEL_NAMES
+from workplan.datamanager import DataManager
 from workplan.genetic import Researcher
 from workplan.show import indicators
 from common.logger import Logger
@@ -32,9 +32,8 @@ def planner():
 
     # создаём Researcher и передаём ему датасеты и инстанс гиперпараметров
     researcher = Researcher(datamanager, hp,
-                            CHANNEL_NAMES,
-                            mode='genetic',
-                            # mode='update',
+                            # mode='genetic',
+                            mode='test',
                             show_graphs=True,
                             train=True, save_bots=True)
     researcher.run()
