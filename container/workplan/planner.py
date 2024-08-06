@@ -32,8 +32,8 @@ def planner():
 
     # создаём Researcher и передаём ему датасеты и инстанс гиперпараметров
     researcher = Researcher(datamanager, hp,
-                            # mode='genetic',
-                            mode='test',
+                            mode='genetic',
+                            # mode='test',
                             show_graphs=True,
                             train=True, save_bots=True)
     researcher.run()
