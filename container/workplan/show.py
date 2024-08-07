@@ -4,7 +4,7 @@ import pandas as pd
 from gluonts.dataset.field_names import FieldName
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-from workplan.datamanager import CHANNEL_NAMES,  COLLAPSED_CHANNEL_NAMES
+from workplan.datamanager import CHANNEL_NAMES, COLLAPSED_CHANNEL_NAMES
 
 
 def time_series_by_year(data: list[dict]):
@@ -34,7 +34,7 @@ def time_series_by_year(data: list[dict]):
             args=[dict(
                 y=targets,
                 # selector=dict(name='Прогноз'),
-                ),
+            ),
                 dict(title=f'Количество исследований по годам по модальности: {channel}'),
                 np.arange(len(targets))
             ],
@@ -60,7 +60,6 @@ def time_series_by_year(data: list[dict]):
 
 
 def dashboard(metrics, dataset, forecasts, hp, total_periods, name):
-
     metrics = metrics.copy()
 
     fig = make_subplots(
@@ -201,9 +200,26 @@ def dashboard(metrics, dataset, forecasts, hp, total_periods, name):
             args=[dict(
                 y=[v for v in planfact[i].values()],
                 # selector=dict(name='Прогноз'),
-                ),
+            ),
+                # low_annotations = [dict(x="2015-05-01",
+                #                     y=df.Low.mean(),
+                #                     xref="x", yref="y",
+                #                     text="Low Average:<br> %.2f" % df.Low.mean(),
+                #                     ax=-40, ay=40),
                 # dict(layout={'title': {'text': 'Title 2'}}),
-                dict(layout={'annotations': [{'title': {'text': 'Stackoverflow'}}]}),
+                {
+                    # 'annotations': [dict(text='My text', row=1, col=3),
+                                 # dict(text='My text 2'),
+                                 # dict(text='My text 3')
+                                 # ],
+                    # "xaxis": {"title": "Text 1"},
+                    "xaxis1": {"title": "Text 1"},
+                    "xaxis2": {"title": "Text 2"},
+                    "xaxis3": {"title": "Text 3"},
+                },
+                # {'layout':  dict(subplot_titles=['Plot 1', 'Plot 2', 'Plot 3'])},
+                # dict(layout={'title_text': 'My Text', 'row': 1, 'col': 3}),
+                # dict(layout={'annotations': [{'title': {'text': 'Stackoverflow'}}]}),
                 # layout.annotations[0].update(text="Stackoverflow")
                 # dict(subplot_titles=('Функция ошибки', 'MASE/sMAPE',
                 #                      f'Прогноз/факт [{CHANNEL_NAMES[i]}]')),
@@ -267,14 +283,13 @@ def indicators(hp, params, titles):
     )
     fig.update_layout(
         grid={'rows': 1, 'columns': len(params), 'pattern': "independent"},
-        )
+    )
     fig.show()
     # fig = None
     # gc.collect()
 
 
 def test(figure=None, row=1, col=1):
-
     fig = figure if figure is not None else go.Figure()
 
     fig = make_subplots(
