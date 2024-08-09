@@ -213,9 +213,9 @@ def dashboard(metrics, dataset, forecasts, hp, total_periods, name):
                                  # dict(text='My text 3')
                                  # ],
                     # "xaxis": {"title": "Text 1"},
-                    "xaxis1": {"title": "Text 1"},
-                    "xaxis2": {"title": "Text 2"},
-                    "xaxis3": {"title": "Text 3"},
+                    # "xaxis1": {"title": "Text 1"},
+                    # "xaxis2": {"title": "Text 2"},
+                    # "xaxis3": {"title": "Text 3"},
                 },
                 # {'layout':  dict(subplot_titles=['Plot 1', 'Plot 2', 'Plot 3'])},
                 # dict(layout={'title_text': 'My Text', 'row': 1, 'col': 3}),

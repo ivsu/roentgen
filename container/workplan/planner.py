@@ -9,7 +9,7 @@ from common.logger import Logger
 logger = Logger(__name__)
 
 
-def search_hyperparameters():
+def search_hyperparameters(mode='genetic'):
 
     # создаём инстанс гиперпараметров
     hp = Hyperparameters()
@@ -32,8 +32,7 @@ def search_hyperparameters():
 
     # создаём Researcher и передаём ему датасеты и инстанс гиперпараметров
     researcher = Researcher(datamanager, hp,
-                            mode='genetic',
-                            # mode='test',
+                            mode=mode,
                             show_graphs=True,
                             train=True, save_bots=True)
     researcher.run()
@@ -76,5 +75,7 @@ if __name__ == '__main__':
 
     logger.setup(level=logger.INFO, layout='debug')
 
-    # search_hyperparameters()
-    learn_best_bots()
+    search_hyperparameters(
+        mode='test'
+    )
+    # learn_best_bots()
