@@ -518,19 +518,7 @@ class Researcher:
             # считываем всех ботов с диска и формируем из них популяцию
             self.bots, _ = self.load_bots()
 
-            # TODO: tmp - рефакторинг ботов
-            # for bot_id, bot in self.bots.items():
-            #     if 'num_batches_per_epoch' in bot.values:
-            #         nb = bot.values['num_batches_per_epoch']
-            #         num_batches_per_epoch = self._count_batches_per_epoch(bot.values)
-            #         if nb != num_batches_per_epoch:
-            #             print(f'Рейтинг бота обнулён [{nb} != {num_batches_per_epoch}]: {bot}')
-            #             bot.score = None
-            #         else:
-            #             bot.num_batches_per_epoch = nb
-            #
-            #         del bot.values['num_batches_per_epoch']
-            #         bot.save()
+            # TODO: доработать, если понадобится
 
             self.population = self.bots
 
@@ -740,9 +728,9 @@ class Researcher:
         # количество отбираемых ботов равно количеству выживших
         best_bots = _rate_bots(self.bots, self.hp.get('n_survived'))
 
-        logger.info('Лучшие боты:')
+        print('Лучшие боты:')
         for bot in best_bots.values():
-            logger.info(repr(bot))
+            print(repr(bot))
         return best_bots
 
     def populate(self):
@@ -840,8 +828,9 @@ class Researcher:
         if len(filelist) > 0:
             print(f'Считано ботов с диска в пространстве имён "{namespace}": {len(filelist)}')
             bots = _rate_bots(bots)
-            for bot in bots.values():
-                print(repr(bot))
+            if self.mode != 'best':
+                for bot in bots.values():
+                    print(repr(bot))
 
         else:
             print(f'Ботов на диске в пространстве имён "{namespace}" не найдено.')

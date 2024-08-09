@@ -1,5 +1,6 @@
 import os
 
+import genetic
 from workplan.hyperparameters import Hyperparameters
 from workplan.datamanager import DataManager
 from workplan.genetic import Researcher
@@ -65,7 +66,6 @@ def learn_best_bots():
     # создаём Researcher и передаём ему датасеты и инстанс гиперпараметров
     researcher = Researcher(datamanager, hp,
                             mode='best',
-                            # mode='test',
                             show_graphs=True,
                             train=True, save_bots=False)
     researcher.run()
@@ -75,7 +75,8 @@ if __name__ == '__main__':
 
     logger.setup(level=logger.INFO, layout='debug')
 
-    search_hyperparameters(
-        mode='test'
-    )
-    # learn_best_bots()
+    # search_hyperparameters(
+    #     # mode='test',
+    #     mode='genetic',
+    # )
+    learn_best_bots()
