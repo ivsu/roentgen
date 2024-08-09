@@ -1,6 +1,5 @@
 import os
 
-import genetic
 from workplan.hyperparameters import Hyperparameters
 from workplan.datamanager import DataManager
 from workplan.genetic import Researcher
