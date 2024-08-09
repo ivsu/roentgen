@@ -1,11 +1,12 @@
 import sys
 
 from common.showdata import show_time_series_by_year
-from workplan.planner import planner
+from workplan.planner import search_hyperparameters, learn_best_bots
 
 VALID_ARGS = [
     '--show-time-series-by-year',
     '--search-hyperparameters',
+    '--learn-best-bots'
 ]
 
 
@@ -27,4 +28,6 @@ if __name__ == '__main__':
     if mode == '--show-time-series-by-year':
         show_time_series_by_year()
     elif mode == '--search-hyperparameters':
-        planner()
+        search_hyperparameters()
+    elif mode == '--learn-best-bots':
+        learn_best_bots()

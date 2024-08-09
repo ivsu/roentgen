@@ -481,11 +481,7 @@ class Researcher:
                     for bot in self.population.values()
                     if bot.score
                 ]
-                # пробуем получить индекс следующего бота для обучения
-                # if learned_indices:
-                #     first_index = max(learned_indices) + 1
                 # если последняя популяция обучена целиком
-                # if first_index == self.hp.get('n_bots'):
                 if len(learned_indices) == self.hp.get('n_bots'):
                     from_shift += 1
                     # first_index = 0
@@ -512,7 +508,9 @@ class Researcher:
             self.population = self.get_best_bots()
             # меняем индексы ботов в популяции для корректного вывода
             for i, bot_id in enumerate(self.population):
-                self.population[bot_id].index = i
+                bot = self.population[bot_id]
+                bot.index = i
+                bot.score = 0
             # остальных ботов удаляем, чтобы корректно рассчитывался рейтинг
             self.bots = self.population
 
@@ -544,7 +542,6 @@ class Researcher:
 
     def run(self):
 
-        # first_index, from_shift, evolve = self._setup()
         from_shift, evolve, n_search = self._setup()
 
         # цикл смены популяций ботов
