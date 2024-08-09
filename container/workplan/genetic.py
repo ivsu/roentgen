@@ -560,7 +560,6 @@ class Researcher:
             # цикл по популяции ботов
             for bot_id, bot in self.population.items():
                 # пропустим обученных ботов (актуально для первой смены популяций)
-                # if bot.index < first_index:
                 if bot.score:
                     print(f'Бот уже обучен, пропущен: {bot}')
                     continue
