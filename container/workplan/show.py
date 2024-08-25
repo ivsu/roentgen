@@ -201,16 +201,18 @@ def dashboard(metrics, dataset, forecasts, hp, total_periods, name):
             x=index[-total_periods * prediction_len:],
             y=planfact[ts_index]['fact_1y_ago'],
             mode='lines',
-            line=dict(width=0.5, color='rgba(250, 128, 114, 0.7)'),  # salmon
+            line=dict(width=0.7, color='rgba(250, 128, 114, 0.7)'),  # salmon
             name="Факт -52 нед."
         ),
         row=1, col=3
     )
     # истинное значение -104 недели назад
+    y = planfact[ts_index]['fact_2y_ago']
+    x = index[-total_periods * prediction_len:][:-len(y)]
     fig.add_trace(
         go.Scatter(
-            x=index[-total_periods * prediction_len:],
-            y=planfact[ts_index]['fact_2y_ago'],
+            x=x,
+            y=y,
             mode='lines',
             line=dict(width=0.5, color='rgba(221, 160, 221, 0.7)'),  # plum
             name="Факт -104 нед."
