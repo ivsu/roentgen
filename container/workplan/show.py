@@ -144,6 +144,8 @@ def dashboard(metrics, dataset, forecasts, hp, total_periods, name):
         std_minus=forecasts[i].mean(axis=0) - forecasts[i].std(axis=0),
         plan=np.median(forecasts[i], axis=0),
         fact=dataset[i]["target"][-total_periods * prediction_len:],
+        fact_1y_ago=dataset[i]["target"][-total_periods * prediction_len - 52:-52],
+        fact_2y_ago=dataset[i]["target"][-total_periods * prediction_len - 104:-104],
     ) for i, _ in enumerate(CHANNEL_NAMES)]
 
     # print(f'index:\n{index[-forecast_periods:]}')
@@ -190,6 +192,28 @@ def dashboard(metrics, dataset, forecasts, hp, total_periods, name):
             mode='lines',
             line=dict(color='lightsalmon'),
             name="Факт"
+        ),
+        row=1, col=3
+    )
+    # истинное значение -52 недели назад
+    fig.add_trace(
+        go.Scatter(
+            x=index[-total_periods * prediction_len - 52:-52],
+            y=planfact[ts_index]['fact_1y_ago'],
+            mode='lines',
+            line=dict(width=0.5, color='rgba(250, 128, 114, 0.7)'),  # salmon
+            name="Факт -52 нед."
+        ),
+        row=1, col=3
+    )
+    # истинное значение -104 недели назад
+    fig.add_trace(
+        go.Scatter(
+            x=index[-total_periods * prediction_len - 104:-104],
+            y=planfact[ts_index]['fact_2y_ago'],
+            mode='lines',
+            line=dict(width=0.5, color='rgba(221, 160, 221, 0.7)'),  # plum
+            name="Факт -104 нед."
         ),
         row=1, col=3
     )

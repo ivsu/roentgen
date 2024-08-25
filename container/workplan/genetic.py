@@ -184,6 +184,9 @@ def calc_metrics(dataset, forecasts, bot):
             predictions=forecast_median[item_id][~future_mask],
             references=np.array(ground_truth)[~future_mask],
             training=np.array(training_data)[~past_mask],
+            # TODO:
+            #  - сезонность поставить 52 недели (проверить на графиках)
+            #  - учесть тренд в расчёте метрики; странно, что скалирование MASE по всей поляне вычисляется.
             periodicity=get_seasonality(freq))
         mase_metrics.append(mase["mase"])
 
