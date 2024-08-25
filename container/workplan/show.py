@@ -208,7 +208,7 @@ def dashboard(metrics, dataset, forecasts, hp, total_periods, name):
     )
     # истинное значение -104 недели назад
     y = planfact[ts_index]['fact_2y_ago']
-    x = index[-total_periods * prediction_len:][:-len(y)]
+    x = index[-total_periods * prediction_len:][-len(y):]
     fig.add_trace(
         go.Scatter(
             x=x,
