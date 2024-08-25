@@ -404,6 +404,7 @@ class Researcher:
     def __init__(self, datamanager, hp,
                  mode='genetic',
                  show_graphs=False,
+                 total_periods=2,
                  train=True, save_bots=True
                  ):
         self.datamanager = datamanager
@@ -415,6 +416,7 @@ class Researcher:
         }
         self.hp = hp
         self.show_graphs = show_graphs
+        self.total_periods = total_periods
         self.mode = mode
         self.train = train
         self.save = save_bots
@@ -654,7 +656,7 @@ class Researcher:
                 # выводим статистику бота
                 if self.show_graphs:
                     dashboard(bot.metrics, test_ds, forecasts, bot,
-                              total_periods=7,
+                              total_periods=self.total_periods,
                               name=str(bot)
                               )
                 # освобождаем память

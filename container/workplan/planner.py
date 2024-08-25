@@ -33,7 +33,7 @@ def search_hyperparameters(mode='genetic'):
     # создаём Researcher и передаём ему датасеты и инстанс гиперпараметров
     researcher = Researcher(datamanager, hp,
                             mode=mode,
-                            show_graphs=True,
+                            show_graphs=True, total_periods=7,
                             train=True, save_bots=True)
     researcher.run()
 
@@ -65,7 +65,7 @@ def learn_best_bots():
     # создаём Researcher и передаём ему датасеты и инстанс гиперпараметров
     researcher = Researcher(datamanager, hp,
                             mode='best',
-                            show_graphs=True,
+                            show_graphs=True, total_periods=2,
                             train=True, save_bots=False)
     researcher.run()
 
