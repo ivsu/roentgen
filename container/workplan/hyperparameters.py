@@ -33,7 +33,7 @@ class Hyperparameters:
             n_epochs=15,
             # количество эпох на прогрев модели и на затухание LR
             warmup_epochs=5,
-            decay_epochs=10,
+            decay_epochs=5,
             # общее количество ботов в популяции
             n_bots=15,
             # количество выживающих ботов (>=2)

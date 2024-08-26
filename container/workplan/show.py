@@ -65,10 +65,11 @@ def dashboard(metrics, dataset, forecasts, learning_rates, bot, total_periods, n
 
     fig = make_subplots(
         rows=1, cols=3,
-        subplot_titles=('Функция ошибки', 'MASE/sMAPE',
+        subplot_titles=('Функция ошибки / LR', 'MASE / sMAPE',
                         # f'Прогноз/факт [{CHANNEL_NAMES[ts_index]}]')
                         f'Прогноз/факт [...]'),
-        specs=[[{'secondary_y': True}, {}, {}]]
+        horizontal_spacing=0.1,
+        specs=[[{'secondary_y': True}, {'secondary_y': False}, {'secondary_y': False}]]
     )
 
     losses = np.asarray(metrics['losses'])  # [stages, epochs, batches]
@@ -130,7 +131,7 @@ def dashboard(metrics, dataset, forecasts, learning_rates, bot, total_periods, n
         go.Scatter(
             x=epochs, y=learning_rates,
             mode='lines',
-            line=dict(width=0.8, color='rgba(192, 192, 192, 0.8)'),
+            line=dict(width=0.8, color='rgba(178, 34, 34, 0.5)'),  # Firebrick
             name="Learning rate"
         ),
         row=1, col=1, secondary_y=True,
@@ -201,7 +202,7 @@ def dashboard(metrics, dataset, forecasts, learning_rates, bot, total_periods, n
         go.Scatter(
             x=index[-total_periods * prediction_len:],
             y=planfact[ts_index]['fact'],
-            mode='lines',
+            mode='lines+markers',
             line=dict(color='lightsalmon'),
             name="Факт"
         ),
@@ -213,7 +214,7 @@ def dashboard(metrics, dataset, forecasts, learning_rates, bot, total_periods, n
             x=index[-total_periods * prediction_len:],
             y=planfact[ts_index]['fact_1y_ago'],
             mode='lines',
-            line=dict(width=0.7, color='rgba(250, 128, 114, 0.7)'),  # salmon
+            line=dict(width=0.7, color='rgba(250, 128, 114, 0.75)'),  # lightsalmon: rgba(255, 160, 122)
             name="Факт -52 нед."
         ),
         row=1, col=3
@@ -226,7 +227,7 @@ def dashboard(metrics, dataset, forecasts, learning_rates, bot, total_periods, n
             x=x,
             y=y,
             mode='lines',
-            line=dict(width=0.5, color='rgba(221, 160, 221, 0.7)'),  # plum
+            line=dict(width=0.5, color='rgba(250, 128, 114, 0.5)'),
             name="Факт -104 нед."
         ),
         row=1, col=3
@@ -277,7 +278,7 @@ def dashboard(metrics, dataset, forecasts, learning_rates, bot, total_periods, n
                 x=epochs, y=loss_mean,
                 name=f'Stage {stage}',
                 mode='lines',
-                line=dict(width=0.5, color='rgba(34, 139, 34, 0.5)'),  # forestgreen
+                line=dict(width=0.5, color='rgba(34, 139, 34, 0.7)'),  # forestgreen
                 # showlegend=stage == 0,
             ),
             row=1, col=1
@@ -295,14 +296,17 @@ def dashboard(metrics, dataset, forecasts, learning_rates, bot, total_periods, n
     )
 
     fig.update_xaxes(title_text="Эпоха", row=1, col=1)
-    fig.update_yaxes(title_text="Negative Log Likelihood (NLL)", title_standoff=0, row=1, col=1, secondary_y=False)
-    fig.update_yaxes(title_text="Learning Rate", title_standoff=0, row=1, col=1, secondary_y=True)
+    fig.update_yaxes(title_text="Negative Log Likelihood (NLL)", row=1, col=1, secondary_y=False)
+    fig.update_yaxes(title_text="Learning Rate", row=1, col=1, secondary_y=True)
 
     fig.update_xaxes(title_text="MASE", row=1, col=2)
-    fig.update_yaxes(title_text="sMAPE", title_standoff=0, row=1, col=2)
+    fig.update_yaxes(title_text="sMAPE", row=1, col=2)
 
     fig.update_xaxes(title_text="Период: " + freq, row=1, col=3)
-    fig.update_yaxes(title_text="Количество исследований", title_standoff=0, row=1, col=3)
+    fig.update_yaxes(title_text="Количество исследований", row=1, col=3)
+
+    # common
+    fig.update_yaxes(title_font=dict(size=11), title_standoff=5)
 
     fig.show()
 

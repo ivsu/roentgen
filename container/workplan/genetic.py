@@ -53,7 +53,7 @@ def train(model, config, dataloader, bot, stage_prefix):
         decay_rate=0.3,
         target_lr=1e-3,
         initial_lr=5e-5,
-        final_lr=5e-5,
+        final_lr=1e-5,
         steps_per_epoch=num_batches,
         change_on_every_batch=CHANGE_LR_ON_EVERY_BATCH,
         device=device
