@@ -18,7 +18,7 @@ def search_hyperparameters(mode='genetic', end_shifts=None):
 
     # (!) plotly странно работает при первом вызове в колабе - выведем графические
     # индикаторы для первого вызова
-    if os.environ['RUN_ENV'] == 'COLAB':
+    if True or os.environ['RUN_ENV'] == 'COLAB':
         indicators(
             hp,
             params=['n_epochs', 'warmup_epochs', 'decay_epochs', 'prediction_len'],

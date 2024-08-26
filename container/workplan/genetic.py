@@ -23,6 +23,8 @@ logger = Logger(__name__)
 
 # периодичность временного ряда для расчёта метрики MASE
 MASE_METRIC_PERIODICITY = 52
+# признак управления LR после каждого батча (иначе в рамках эпохи применяется один и тот же LR ко всем батчам)
+CHANGE_LR_ON_EVERY_BATCH = True
 
 
 def train(model, config, dataloader, bot, stage_prefix):
@@ -53,7 +55,7 @@ def train(model, config, dataloader, bot, stage_prefix):
         initial_lr=5e-5,
         final_lr=5e-5,
         steps_per_epoch=num_batches,
-        change_on_every_batch=False,
+        change_on_every_batch=CHANGE_LR_ON_EVERY_BATCH,
         device=device
     )
 

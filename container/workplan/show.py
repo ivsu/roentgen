@@ -317,7 +317,8 @@ def indicators(hp, params, titles):
     fig.update_layout(
         # title_text='Запуск обучения ботов',
         # width=500,
-        autosize=False, height=250,
+        # autosize=False,
+        height=250,
     )
     fig.update_layout(
         grid={'rows': 1, 'columns': len(params), 'pattern': "independent"},
