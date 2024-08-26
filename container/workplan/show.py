@@ -309,12 +309,16 @@ def dashboard(metrics, dataset, forecasts, learning_rates, bot, total_periods, n
 
 def indicators(hp, params):
 
+    n_in_row = 5
     n_indicators = len(params)
+    n_rows = 1 + (n_indicators - 1) // n_in_row
+    n_cols = 1 + (n_indicators - 1) // n_rows
 
     fig = make_subplots(
-        rows=1, cols=n_indicators,
-        horizontal_spacing=0.1,
-        specs=[[{"type": "indicator"} for _ in params]],
+        rows=n_rows,
+        cols=n_cols,
+        # horizontal_spacing=0.1,
+        specs=[[{"type": "indicator"} for _ in range(n_cols)] for _ in range(n_rows)],
     )
 
     for i, key in enumerate(params):
@@ -326,19 +330,19 @@ def indicators(hp, params):
             title={'text': params[key], 'font': {'size': 10}},
             # domain={'row': 0, 'column': i}
             ),
-            row=1, col=i + 1,
+            row=1 + i // n_in_row, col=1 + i % n_in_row,
         )
 
     fig.update_layout(
         title_text='Запуск подбора гиперпараметров',
         # width=500,
-    #     # autosize=False,
-        height=250,
-    #     grid={'rows': 1, 'columns': len(params), 'pattern': 'independent'},
+        # autosize=False,
+        height=180 * n_rows,  # это примерно (для точности нужно учесть высоту заголовка)
+        # grid={'rows': 1, 'columns': len(params), 'pattern': 'independent'},
         paper_bgcolor='rgba(222, 222, 222, 1)',
         # plot_bgcolor='rgba(128, 128, 192, 1)',  # для индикаторов, похоже, не работает
-    #     # margin={'autoexpand': False, 'pad': 30, 'l': 20}
-    #     margin=dict(l=30, r=30, t=30, b=20, pad=40),
+        # margin={'autoexpand': False, 'pad': 30, 'l': 20}
+        # margin=dict(l=30, r=30, t=30, b=20, pad=40),
     )
     fig.show()
 
