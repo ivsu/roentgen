@@ -25,10 +25,10 @@ logger = Logger(__name__)
 MASE_METRIC_PERIODICITY = 52
 
 
-def train(model, config, dataloader, hp, stage_prefix):
-    epochs = hp.get('n_epochs')
-    warmup_epochs = hp.get('warmup_epochs')
-    decay_epochs = hp.get('decay_epochs')
+def train(model, config, dataloader, bot, stage_prefix):
+    epochs = bot.get('n_epochs')
+    warmup_epochs = bot.get('warmup_epochs')
+    decay_epochs = bot.get('decay_epochs')
     steps = 0
 
     # определим количество батчей
@@ -476,9 +476,18 @@ class Researcher:
         # количество смен популяций ботов
         n_search = 1
 
+        def bots_refactor():
+            """Промежуточный метод для переформатирования старых ботов к изменениям"""
+            for bot in self.bots.values():
+                if 'decay_epochs' not in bot.values.keys():
+                    bot.values['decay_epochs'] = bot.get('n_epochs') - bot.get('warmup_epochs')
+            pass
+
         if self.mode == 'genetic':
             # считываем ботов с диска
             self.bots, self.max_id = self.load_bots()
+            # обновляем старых ботов, если это необходимо
+            bots_refactor()
             # восстанавливаем хэши
             self.hashes = [bot.hash for bot in self.bots.values()]
             n_search = self.hp.get('n_search')
@@ -531,6 +540,8 @@ class Researcher:
         elif self.mode == 'best':
             # считываем ботов с диска
             self.bots, _ = self.load_bots()
+            # обновляем старых ботов, если это необходимо
+            bots_refactor()
             # создаём популяцию из лучших ботов
             self.population = self.get_best_bots()
             # меняем индексы ботов в популяции для корректного вывода
@@ -649,7 +660,7 @@ class Researcher:
                         mase_metrics.append(metrics[0])
                         smape_metrics.append(metrics[1])
                         train_sec += stage_train_sec
-                    else: # TODO: доработать, если эта фича понадобится
+                    else:  # TODO: доработать, если эта фича понадобится
                         # тестовые значения
                         stage_losses = self.gen.random(size=(bot.get('n_epochs'),
                                                              bot.get('num_batches_per_epoch'))).tolist()
