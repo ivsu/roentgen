@@ -377,8 +377,8 @@ class Bot:
         shift = f'{self.shift:02d}' if self.shift is not None else None
         index = f'{self.index:02d}' if self.index is not None else None
         return (f'ID {self.id:3d} [{self.namespace}.{shift}.{index}], '
-                u'\U0001F39B' + f' [{params}], {self.metric}: {score}, '
-                                f't: {self.train_time:3.0f}s [{self.get("n_epochs")}]')
+                f'⚙️[{params}], {self.metric}: {score}, '
+                f't: {self.train_time:3.0f}s [{self.get("n_epochs")}]')
 
     def __repr__(self):
         return self.__str__(self.repr_formats)

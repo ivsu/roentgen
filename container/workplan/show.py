@@ -61,6 +61,7 @@ def time_series_by_year(data: list[dict]):
 
 def dashboard(metrics, dataset, forecasts, learning_rates, bot, total_periods, name):
     metrics = metrics.copy()
+    learning_rates = learning_rates.copy()
 
     fig = make_subplots(
         rows=1, cols=3,
@@ -306,26 +307,40 @@ def dashboard(metrics, dataset, forecasts, learning_rates, bot, total_periods, n
     fig.show()
 
 
-def indicators(hp, params, titles):
-    fig = go.Figure()
-    for i, p in enumerate(params):
+def indicators(hp, params):
+
+    n_indicators = len(params)
+
+    fig = make_subplots(
+        rows=1, cols=n_indicators,
+        horizontal_spacing=0.1,
+        specs=[[{"type": "indicator"} for _ in params]],
+    )
+
+    for i, key in enumerate(params):
+        value = hp.get(key)
         fig.add_trace(go.Indicator(
             mode="number",
-            value=hp.get(p),
-            title={'text': titles[i]},
-            domain={'row': 0, 'column': i}))
+            value=len(value) if isinstance(value, list) else value,
+            number={'font': {'size': 40}},
+            title={'text': params[key], 'font': {'size': 10}},
+            # domain={'row': 0, 'column': i}
+            ),
+            row=1, col=i + 1,
+        )
+
     fig.update_layout(
-        # title_text='Запуск обучения ботов',
+        title_text='Запуск подбора гиперпараметров',
         # width=500,
-        # autosize=False,
+    #     # autosize=False,
         height=250,
-    )
-    fig.update_layout(
-        grid={'rows': 1, 'columns': len(params), 'pattern': "independent"},
+    #     grid={'rows': 1, 'columns': len(params), 'pattern': 'independent'},
+        paper_bgcolor='rgba(222, 222, 222, 1)',
+        # plot_bgcolor='rgba(128, 128, 192, 1)',  # для индикаторов, похоже, не работает
+    #     # margin={'autoexpand': False, 'pad': 30, 'l': 20}
+    #     margin=dict(l=30, r=30, t=30, b=20, pad=40),
     )
     fig.show()
-    # fig = None
-    # gc.collect()
 
 
 def test(figure=None, row=1, col=1):

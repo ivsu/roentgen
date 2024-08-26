@@ -8,6 +8,16 @@ from common.logger import Logger
 
 logger = Logger(__name__)
 
+# PARAMS = ['n_search', 'n_epochs', 'warmup_epochs', 'decay_epochs', 'prediction_len',
+#           'n_bots', 'n_survived', 'n_random', 'end_shifts'],
+# PARAMS_TITLES = ['Популяций', 'Эпох обучения', 'Эпох прогрева', 'Эпох затухания LR', 'Глубина предикта',
+#                  'Ботов в популяции', 'Количество выживающих', 'Количество рандомных', 'Этапов обучения каждого бота']
+
+PARAMS = dict(n_search='Популяций', n_bots='Ботов в популяции',
+              n_survived='Количество выживающих', n_random='Количество рандомных', prediction_len='Глубина предикта',
+              n_epochs='Эпох обучения', warmup_epochs='Эпох прогрева', decay_epochs='Эпох затухания LR',
+              end_shifts='Этапов обучения каждого бота')
+
 
 def search_hyperparameters(mode='genetic', end_shifts=None):
 
@@ -19,11 +29,7 @@ def search_hyperparameters(mode='genetic', end_shifts=None):
     # (!) plotly странно работает при первом вызове в колабе - выведем графические
     # индикаторы для первого вызова
     if True or os.environ['RUN_ENV'] == 'COLAB':
-        indicators(
-            hp,
-            params=['n_epochs', 'warmup_epochs', 'decay_epochs', 'prediction_len'],
-            titles=['Эпох обучения', 'Эпох прогрева', 'Эпох затухания LR', 'Глубина предикта']
-        )
+        indicators(hp, PARAMS)
 
     # создаём менеджер данных и готовим исходный DataFrame для формирования выборок
     datamanager = DataManager()
@@ -54,11 +60,7 @@ def learn_best_bots():
     # (!) plotly странно работает при первом вызове в колабе - выведем графические
     # индикаторы для первого вызова
     if os.environ['RUN_ENV'] == 'COLAB':
-        indicators(
-            hp,
-            params=['n_epochs', 'warmup_epochs', 'decay_epochs', 'prediction_len'],
-            titles=['Эпох обучения', 'Эпох прогрева', 'Эпох затухания LR', 'Глубина предикта']
-        )
+        indicators(hp, PARAMS)
 
     # создаём менеджер данных и готовим исходный DataFrame для формирования выборок
     datamanager = DataManager()
