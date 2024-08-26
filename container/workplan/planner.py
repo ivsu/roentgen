@@ -19,8 +19,8 @@ def search_hyperparameters(mode='genetic'):
     if os.environ['RUN_ENV'] == 'COLAB':
         indicators(
             hp,
-            params=['n_epochs', 'warmup_epochs', 'prediction_len'],
-            titles=['Эпох обучения', 'Эпох прогрева', 'Глубина предикта']
+            params=['n_epochs', 'warmup_epochs', 'decay_epochs', 'prediction_len'],
+            titles=['Эпох обучения', 'Эпох прогрева', 'Эпох затухания LR', 'Глубина предикта']
         )
 
     # создаём менеджер данных и готовим исходный DataFrame для формирования выборок
@@ -51,8 +51,8 @@ def learn_best_bots():
     if os.environ['RUN_ENV'] == 'COLAB':
         indicators(
             hp,
-            params=['n_epochs', 'warmup_epochs', 'prediction_len'],
-            titles=['Эпох обучения', 'Эпох прогрева', 'Глубина предикта']
+            params=['n_epochs', 'warmup_epochs', 'decay_epochs', 'prediction_len'],
+            titles=['Эпох обучения', 'Эпох прогрева', 'Эпох затухания LR', 'Глубина предикта']
         )
 
     # создаём менеджер данных и готовим исходный DataFrame для формирования выборок
@@ -65,7 +65,7 @@ def learn_best_bots():
     # создаём Researcher и передаём ему датасеты и инстанс гиперпараметров
     researcher = Researcher(datamanager, hp,
                             mode='best',
-                            show_graphs=True, total_periods=7,
+                            show_graphs=True, total_periods=2,
                             train=True, save_bots=False)
     researcher.run()
 
@@ -74,8 +74,8 @@ if __name__ == '__main__':
 
     logger.setup(level=logger.INFO, layout='debug')
 
-    # search_hyperparameters(
-    #     # mode='test',
-    #     mode='genetic',
-    # )
-    learn_best_bots()
+    search_hyperparameters(
+        # mode='test',
+        mode='genetic',
+    )
+    # learn_best_bots()

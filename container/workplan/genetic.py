@@ -10,22 +10,25 @@ from torch.optim import AdamW
 import torch
 # для расчёта метрик MASE/sMAPE
 from evaluate import load
-from gluonts.time_feature import get_seasonality
+# from gluonts.time_feature import get_seasonality
 
 from workplan.modelbuilder import ModelBuilder
 from workplan.show import dashboard
 from workplan.dataloaders import create_train_dataloader, create_test_dataloader
-from workplan.schedulers import WarmAndDecayScheduler
+from workplan.schedulers import WarmupAndDecayScheduler
 from workplan.datamanager import CHANNEL_NAMES
 from common.logger import Logger
 
 logger = Logger(__name__)
 
+# периодичность временного ряда для расчёта метрики MASE
+MASE_METRIC_PERIODICITY = 52
 
-def train(model, config, dataloader, hp, mode, stage_prefix):
 
-    epochs = 2 if mode == 'test' else hp.get('n_epochs')
+def train(model, config, dataloader, hp, stage_prefix):
+    epochs = hp.get('n_epochs')
     warmup_epochs = hp.get('warmup_epochs')
+    decay_epochs = hp.get('decay_epochs')
     steps = 0
 
     # определим количество батчей
@@ -41,13 +44,16 @@ def train(model, config, dataloader, hp, mode, stage_prefix):
     optimizer = AdamW(model.parameters(), betas=(0.9, 0.95), weight_decay=1e-1)
 
     # будем обучать трансформер с прогревом
-    scheduler = WarmAndDecayScheduler(
+    scheduler = WarmupAndDecayScheduler(
         optimizer,
         warmup_steps=num_batches * warmup_epochs,
-        decay_steps=num_batches * (epochs - warmup_epochs),
-        decay_rate=0.01,
-        target_learning_rate=1e-3,
-        initial_learning_rate=1e-5,
+        decay_steps=num_batches * decay_epochs,
+        decay_rate=0.3,
+        target_lr=1e-3,
+        initial_lr=5e-5,
+        final_lr=5e-5,
+        steps_per_epoch=num_batches,
+        change_on_every_batch=False,
         device=device
     )
 
@@ -57,6 +63,7 @@ def train(model, config, dataloader, hp, mode, stage_prefix):
 
     model.train()
     losses = []
+    learning_rates = []
     start_time = datetime.now()
     for epoch in range(epochs):
         epoch_losses = []
@@ -80,8 +87,6 @@ def train(model, config, dataloader, hp, mode, stage_prefix):
             )
             loss = outputs.loss
             epoch_losses.append(loss.item())
-            # запоминаем текущий LR
-            lr = optimizer.param_groups[0]['lr']
 
             # обратное распространение
             accelerator.backward(loss)
@@ -89,6 +94,10 @@ def train(model, config, dataloader, hp, mode, stage_prefix):
             scheduler.step()
 
         losses.append(epoch_losses)
+        # запоминаем текущий LR
+        lr = optimizer.param_groups[0]['lr'].item()
+        learning_rates.append(lr)
+
         mean_loss = sum(epoch_losses) / len(epoch_losses)
         # scheduler.step(mean_loss)
         t = datetime.now() - start_time
@@ -97,12 +106,12 @@ def train(model, config, dataloader, hp, mode, stage_prefix):
         print(f'\r{stage_prefix}'
               f'epoch: {epoch + 1:3d}'
               f' | mean loss: {mean_loss:.4f}'
-              f' | LR: {lr:.6f}'
+              f' | LR: {learning_rates[-1]:.6f}'
               f' | steps: {steps:4d}'
               f' | total time: {t.seconds:3.0f}s',
               end=end)
 
-    return model, losses, device, t.seconds, epochs
+    return model, losses, device, t.seconds, learning_rates
 
 
 def inference(model, dataloader, config, device):
@@ -138,19 +147,7 @@ def inference(model, dataloader, config, device):
     return forecasts
 
 
-def calc_metrics(dataset, forecasts, bot):
-    """
-    Возвращет метрики MASE/sMAPE.
-
-    :param dataset: тестовый датасет, содержащий все последовательности целиком
-    :param forecasts: прогноз, полученный методом inference
-    :param bot: тестовый датасет, содержащий все последовательности целиком
-    """
-    prediction_len = bot.get('prediction_len')
-    freq = bot.get('freq')
-    mase_metric = load("evaluate-metric/mase")
-    smape_metric = load("evaluate-metric/smape")
-
+def convert_data_for_metrics(dataset, forecasts):
     # сложим значения по КТ и МРТ с разным контрастным усилением, т.к. эти исследования выполняются
     # врачами с той же самой квалификацией
     forecasts_converted = np.concatenate([
@@ -164,6 +161,25 @@ def calc_metrics(dataset, forecasts, bot):
         target_converted[3:6].sum(axis=0, keepdims=True),
         target_converted[6:],
     ])
+    return forecasts_converted, target_converted
+
+
+def calc_metrics(dataset, forecasts, bot):
+    """
+    Возвращет метрики MASE/sMAPE.
+
+    :param dataset: тестовый датасет, содержащий все последовательности целиком
+    :param forecasts: прогноз, полученный методом inference
+    :param bot: тестовый датасет, содержащий все последовательности целиком
+    """
+    prediction_len = bot.get('prediction_len')
+    # freq = bot.get('freq')
+    mase_metric = load("evaluate-metric/mase")
+    smape_metric = load("evaluate-metric/smape")
+
+    # сложим значения по КТ и МРТ с разным контрастным усилением, т.к. эти исследования выполняются
+    # врачами с той же самой квалификацией
+    forecasts_converted, target_converted = convert_data_for_metrics(dataset, forecasts)
 
     # возмём медианное по батчам значение прогноза: (channels, n_batches, prediction_len) -> (channels, prediction_len)
     forecast_median = np.median(forecasts_converted, axis=1)
@@ -185,9 +201,8 @@ def calc_metrics(dataset, forecasts, bot):
             references=np.array(ground_truth)[~future_mask],
             training=np.array(training_data)[~past_mask],
             # TODO:
-            #  - сезонность поставить 52 недели (проверить на графиках)
             #  - учесть тренд в расчёте метрики; странно, что скалирование MASE по всей поляне вычисляется.
-            periodicity=get_seasonality(freq))
+            periodicity=MASE_METRIC_PERIODICITY)
         mase_metrics.append(mase["mase"])
 
         smape = smape_metric.compute(
@@ -233,8 +248,6 @@ class Bot:
         self.score = None
         # хэш значений гиперпараметров для проверки уникальности бота
         self.hash = None
-        # количество эпох, на которых обучен бот
-        self.epochs = 0
         # время, которое обучался бот
         self.train_time = 0
 
@@ -276,6 +289,13 @@ class Bot:
             return self.values[key]
         else:
             raise KeyError(f'Не задан гиперпараметр с ключом: {key}.')
+
+    def set(self, key, value):
+        """Устанавливает значение гиперпараметра бота по его ключу"""
+        if key in self.values:
+            self.values[key] = value
+        else:
+            raise KeyError(f'У бота отсутствует гиперпараметр с ключом: {key}.')
 
     def get_lags_sequence(self):
         index = self.get('lags_sequence_index')
@@ -323,7 +343,6 @@ class Bot:
             'values': values,
             'metrics': self.metrics,
             'train_time': self.train_time,
-            'epochs': self.epochs,
             'score': self.score,
             'hash': self.hash,
         }
@@ -356,7 +375,7 @@ class Bot:
         index = f'{self.index:02d}' if self.index is not None else None
         return (f'ID {self.id:3d} [{self.namespace}.{shift}.{index}], '
                 u'\U0001F39B' + f' [{params}], {self.metric}: {score}, '
-                f't: {self.train_time:3.0f}s [{self.epochs}]')
+                                f't: {self.train_time:3.0f}s [{self.get("n_epochs")}]')
 
     def __repr__(self):
         return self.__str__(self.repr_formats)
@@ -504,8 +523,11 @@ class Researcher:
             # создаём единственного бота с параметрами по умолчанию
             self.shift = 0
             self.population = self.generate(1, mode='default')
+            for bot in self.population.values():
+                bot.set('n_epochs', 2)
             self.bots = self.population
 
+        # если мы дообучаем лучших ботов
         elif self.mode == 'best':
             # считываем ботов с диска
             self.bots, _ = self.load_bots()
@@ -516,6 +538,12 @@ class Researcher:
                 bot = self.population[bot_id]
                 bot.index = i
                 bot.score = 0
+                # установим новые параметры считанному боту
+                bot.set('n_epochs', self.hp.get('n_epochs'))
+                bot.set('warmup_epochs', 5)
+                bot.set('decay_epochs', 20)
+                bot.set('end_shifts', [0])
+
             # остальных ботов удаляем, чтобы корректно рассчитывался рейтинг
             self.bots = self.population
 
@@ -570,11 +598,6 @@ class Researcher:
                     continue
                 print(f'Популяция #{shift:02d}, bot ID: {bot.id} ({bot.index + 1}/{len(self.population.items())})')
 
-                # если мы дообучаем лучших ботов, установим им другие параметры
-                if self.mode == 'best':
-                    bot.values['n_epochs'] = self.hp.get('n_epochs')
-                    bot.values['end_shifts'] = [0]
-
                 # получаем модель
                 time_features = bot.get_time_features()
                 mb = ModelBuilder(bot, n_channels=self.datamanager.get_channels_num(),
@@ -586,6 +609,7 @@ class Researcher:
                 losses, mase_metrics, smape_metrics = [], [], []
                 train_sec = 0
 
+                # цикл по этапам обучения
                 for stage_index, end_shift in enumerate(bot.get('end_shifts')):
 
                     # формируем выборки
@@ -604,8 +628,8 @@ class Researcher:
                         )
                         # обучаем модель
                         stage_prefix = f'stage: {stage_index + 1}/{len(bot.get("end_shifts"))} | '
-                        model, stage_losses, device, stage_train_sec, epochs \
-                            = train(model, config, train_dataloader, bot, self.mode, stage_prefix)
+                        model, stage_losses, device, stage_train_sec, learning_rates \
+                            = train(model, config, train_dataloader, bot, stage_prefix)
 
                         # формируем тестовую выборку и делаем инференс
                         test_dataloader = create_test_dataloader(
@@ -625,11 +649,10 @@ class Researcher:
                         mase_metrics.append(metrics[0])
                         smape_metrics.append(metrics[1])
                         train_sec += stage_train_sec
-                    else:
+                    else: # TODO: доработать, если эта фича понадобится
                         # тестовые значения
                         stage_losses = self.gen.random(size=(bot.get('n_epochs'),
                                                              bot.get('num_batches_per_epoch'))).tolist()
-                        epochs = 2
                         # train_ds, test_ds, forecasts = ...
                         losses.append(stage_losses)
                         mase_metrics.append(self.gen.random(size=len(train_ds)).tolist())
@@ -643,9 +666,6 @@ class Researcher:
                     'smape': smape_metrics,
                 }
                 bot.train_time = train_sec
-                # TODO: разобраться с эпохами - они должны быть у бота заданы заранее и задавать их тут не нужно
-                # bot.epochs += epochs
-                bot.epochs = epochs
                 # оценка бота - среднее значение ошибки sMAPE по всем временным рядам
                 bot.score = np.array(smape_metrics).mean()
 
@@ -655,7 +675,8 @@ class Researcher:
 
                 # выводим статистику бота
                 if self.show_graphs:
-                    dashboard(bot.metrics, test_ds, forecasts, bot,
+                    # learning_rates - данные последней стадии обучения
+                    dashboard(bot.metrics, test_ds, forecasts, learning_rates, bot,
                               total_periods=self.total_periods,
                               name=str(bot)
                               )

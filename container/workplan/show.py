@@ -59,7 +59,7 @@ def time_series_by_year(data: list[dict]):
     fig.show()
 
 
-def dashboard(metrics, dataset, forecasts, hp, total_periods, name):
+def dashboard(metrics, dataset, forecasts, learning_rates, bot, total_periods, name):
     metrics = metrics.copy()
 
     fig = make_subplots(
@@ -77,8 +77,8 @@ def dashboard(metrics, dataset, forecasts, hp, total_periods, name):
     mase = np.array(metrics['mase']).mean(axis=0)  # [stages, channels]
     smape = np.array(metrics['smape']).mean(axis=0)
 
-    freq = hp.get('freq')
-    prediction_len = hp.get('prediction_len')
+    freq = bot.get('freq')
+    prediction_len = bot.get('prediction_len')
 
     ts_index = 0
     forecast_periods = forecasts.shape[2]
@@ -99,7 +99,7 @@ def dashboard(metrics, dataset, forecasts, hp, total_periods, name):
             line=dict(width=0.5, color='rgba(192, 192, 192, 1)'),
             showlegend=False,
         ),
-        row=1, col=1
+        row=1, col=1, secondary_y=False,
     )
     fig.add_trace(
         go.Scatter(
@@ -111,7 +111,7 @@ def dashboard(metrics, dataset, forecasts, hp, total_periods, name):
             name="± 1-std",
             showlegend=False,
         ),
-        row=1, col=1
+        row=1, col=1, secondary_y=False,
     )
     # среднее значение ошибки на эпоху
     fig.add_trace(
@@ -121,7 +121,17 @@ def dashboard(metrics, dataset, forecasts, hp, total_periods, name):
             line=dict(color='forestgreen'),
             name="Ошибка"
         ),
-        row=1, col=1
+        row=1, col=1, secondary_y=False,
+    )
+    # learning_rates
+    fig.add_trace(
+        go.Scatter(
+            x=epochs, y=learning_rates,
+            mode='lines',
+            line=dict(color='rgba(192, 192, 192, 0.8)'),
+            name="Learning rate"
+        ),
+        row=1, col=1, secondary_y=True,
     )
 
     # MASE/sMAPE
@@ -283,7 +293,8 @@ def dashboard(metrics, dataset, forecasts, hp, total_periods, name):
     )
 
     fig.update_xaxes(title_text="Эпоха", row=1, col=1)
-    fig.update_yaxes(title_text="Negative Log Likelihood (NLL)", title_standoff=0, row=1, col=1)
+    fig.update_yaxes(title_text="Negative Log Likelihood (NLL)", title_standoff=0, row=1, col=1, secondary_y=False)
+    fig.update_yaxes(title_text="Learning Rate", title_standoff=0, row=1, col=1, secondary_y=True)
 
     fig.update_xaxes(title_text="MASE", row=1, col=2)
     fig.update_yaxes(title_text="sMAPE", title_standoff=0, row=1, col=2)
