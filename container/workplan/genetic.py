@@ -334,7 +334,8 @@ class Bot:
 
     def get_state(self):
         """Возвращает состояние бота для сохранения на диск"""
-        excluded_values_keys = ['bots_folder']
+        excluded_values_keys = ['bots_folder', 'n_search', 'n_bots', 'n_survived', 'n_random']
+
         values = {key: self.values[key] for key in self.values if key not in excluded_values_keys}
         return {
             'id': self.id,
@@ -463,12 +464,9 @@ class Researcher:
         """
         Пробует считать ботов с диска и определяет режим старта генетического алгоритма.
 
-        :return: * first_index - индекс первого обучаемого бота в смене (актуально для возобновления обучени);
-                 * from_shift - индекс начальной смены популяции ботов;
+        :return: * from_shift - индекс начальной смены популяции ботов;
                  * evolve - признак создания популяции ботов с помощью генетики.
         """
-        # индекс первого обучаемого бота в смене (актуально для возобновления обучения)
-        # first_index = 0
         # индекс начальной смены популяции ботов
         from_shift = 0
         # признак создания популяции ботов с помощью генетики
@@ -476,18 +474,29 @@ class Researcher:
         # количество смен популяций ботов
         n_search = 1
 
-        def bots_refactor():
+        def bots_refactor(bots):
             """Промежуточный метод для переформатирования старых ботов к изменениям"""
-            for bot in self.bots.values():
+            for bot in bots.values():
                 if 'decay_epochs' not in bot.values.keys():
                     bot.values['decay_epochs'] = bot.get('n_epochs') - bot.get('warmup_epochs')
             pass
+
+        def set_from_hp(bots: dict[int: Bot], keys: list[str], unlearned: bool = False):
+            """Устанавливает параметры ботов из значений гиперпараметров"""
+            for bot in bots.values():
+                for key in keys:
+                    assert key in bot.values.keys(), f'Бот не содержит параметра с ключом: {key}'
+                    assert key in self.hp.fixed, f'Гиперпараметры не содержат ключа: {key}'
+                    if not unlearned or not bot.score:
+                        bot.set(key, self.hp.get(key))
 
         if self.mode == 'genetic':
             # считываем ботов с диска
             self.bots, self.max_id = self.load_bots()
             # обновляем старых ботов, если это необходимо
-            bots_refactor()
+            bots_refactor(self.bots)
+            # устанавливаем ботам параметры из hp
+            set_from_hp(self.bots, ['end_shifts'], unlearned=True)
             # восстанавливаем хэши
             self.hashes = [bot.hash for bot in self.bots.values()]
             n_search = self.hp.get('n_search')
@@ -517,7 +526,6 @@ class Researcher:
                 # если последняя популяция обучена целиком
                 if len(learned_indices) == self.hp.get('n_bots'):
                     from_shift += 1
-                    # first_index = 0
                     evolve = True
 
             # если ботов не считано с диска, создаём новую популяцию
@@ -541,19 +549,17 @@ class Researcher:
             # считываем ботов с диска
             self.bots, _ = self.load_bots()
             # обновляем старых ботов, если это необходимо
-            bots_refactor()
+            bots_refactor(self.bots)
             # создаём популяцию из лучших ботов
             self.population = self.get_best_bots()
+            # установим новые параметры считанному боту
+            set_from_hp(self.population, ['n_epochs', 'warmup_epochs', 'decay_epochs', 'end_shifts'])
+
             # меняем индексы ботов в популяции для корректного вывода
             for i, bot_id in enumerate(self.population):
                 bot = self.population[bot_id]
                 bot.index = i
-                bot.score = 0
-                # установим новые параметры считанному боту
-                bot.set('n_epochs', self.hp.get('n_epochs'))
-                bot.set('warmup_epochs', 5)
-                bot.set('decay_epochs', 20)
-                bot.set('end_shifts', [0])
+                bot.score = None
 
             # остальных ботов удаляем, чтобы корректно рассчитывался рейтинг
             self.bots = self.population
@@ -569,7 +575,6 @@ class Researcher:
         else:
             raise ValueError(f'Неизвестный режим обучения: {self.mode}')
 
-        # return first_index, from_shift, evolve
         return from_shift, evolve, n_search
 
     def run(self):

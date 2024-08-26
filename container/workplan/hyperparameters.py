@@ -98,6 +98,13 @@ class Hyperparameters:
         else:
             raise KeyError(f'Не задан фиксированный гиперпараметр с ключом: {key}')
 
+    def set(self, key, value):
+        """Задаёт значение фиксированного гиперпараметра"""
+        if key in self.fixed:
+            self.fixed[key] = value
+        else:
+            raise KeyError(f'Фиксированные гиперпараметры не содержат ключа: {key}')
+
     def generate(self, mode, hashes, context, current_values=None):
         """
         Генерирует набор значений гиперпараметров в заданном режиме.

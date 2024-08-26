@@ -66,7 +66,8 @@ def dashboard(metrics, dataset, forecasts, learning_rates, bot, total_periods, n
         rows=1, cols=3,
         subplot_titles=('Функция ошибки', 'MASE/sMAPE',
                         # f'Прогноз/факт [{CHANNEL_NAMES[ts_index]}]')
-                        f'Прогноз/факт [...]')
+                        f'Прогноз/факт [...]'),
+        specs=[[{'secondary_y': True}, {}, {}]]
     )
 
     losses = np.asarray(metrics['losses'])  # [stages, epochs, batches]
@@ -123,12 +124,12 @@ def dashboard(metrics, dataset, forecasts, learning_rates, bot, total_periods, n
         ),
         row=1, col=1, secondary_y=False,
     )
-    # learning_rates
+    # learning rates
     fig.add_trace(
         go.Scatter(
             x=epochs, y=learning_rates,
             mode='lines',
-            line=dict(color='rgba(192, 192, 192, 0.8)'),
+            line=dict(width=0.8, color='rgba(192, 192, 192, 0.8)'),
             name="Learning rate"
         ),
         row=1, col=1, secondary_y=True,

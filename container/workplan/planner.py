@@ -9,13 +9,15 @@ from common.logger import Logger
 logger = Logger(__name__)
 
 
-def search_hyperparameters(mode='genetic'):
+def search_hyperparameters(mode='genetic', end_shifts=None):
 
     # создаём инстанс гиперпараметров
     hp = Hyperparameters()
+    if end_shifts is not None:
+        hp.fixed['end_shifts'] = end_shifts
 
-    # (!) plotly странно работает при первом вызове в колабе в цикле - выведем графические
-    # индикаторы и удалим инстанс
+    # (!) plotly странно работает при первом вызове в колабе - выведем графические
+    # индикаторы для первого вызова
     if os.environ['RUN_ENV'] == 'COLAB':
         indicators(
             hp,
@@ -43,11 +45,14 @@ def learn_best_bots():
     # создаём инстанс гиперпараметров
     hp = Hyperparameters()
     # установим большее, чем при поиске количество эпох обучения, и возьмём 7 лучших ботов
-    hp.fixed['n_epochs'] = 30
-    hp.fixed['n_survived'] = 7
+    hp.set('n_epochs', 30)
+    hp.set('n_survived', 7)
+    hp.set('warmup_epochs', 5)
+    hp.set('decay_epochs', 20)
+    hp.set('end_shifts', [0])
 
-    # (!) plotly странно работает при первом вызове в колабе в цикле - выведем графические
-    # индикаторы и удалим инстанс
+    # (!) plotly странно работает при первом вызове в колабе - выведем графические
+    # индикаторы для первого вызова
     if os.environ['RUN_ENV'] == 'COLAB':
         indicators(
             hp,
@@ -76,6 +81,6 @@ if __name__ == '__main__':
 
     search_hyperparameters(
         # mode='test',
-        mode='genetic',
+        mode='genetic', end_shifts=[0]
     )
     # learn_best_bots()
