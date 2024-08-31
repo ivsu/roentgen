@@ -6,8 +6,15 @@ from schedule.dataloader import DataLoader
 from workplan.datamanager import DataManager, CHANNEL_NAMES
 from workplan.hyperparameters import Hyperparameters
 from workplan.show import time_series_by_year
-import settings
+import settings  # загружается, чтобы сформировать переменную среды
 
+
+CHANNEL_LEGEND = {
+    'kt': 'КТ', 'kt_ce1': 'КТ с контрастом, вариант 1', 'kt_ce2': 'КТ с контрастом, вариант 2',
+    'mrt': 'МРТ', 'mrt_ce1': 'МРТ с контрастом, вариант 1', 'mrt_ce2': 'МРТ с контрастом, вариант 1',
+    'rg': 'Рентгенография', 'flg': 'Флюорография',
+    'mmg': 'Маммография', 'dens': 'Денситометрия'
+}
 
 
 def convert_dataset(ds, skip_start_weeks=0, verbose=0) -> list[dict]:
@@ -100,6 +107,11 @@ def show_doctors():
         print(doctor_df.head(10))
 
 
+def show_legend():
+    print('Расшировка модальностей врачей')
+    print("\n".join(f'{k:>7}: {v}' for k, v in CHANNEL_LEGEND.items()))
+
+
 def expand_pandas_output():
     pd.set_option('display.max_rows', 500)
     pd.set_option('display.max_columns', 500)
@@ -108,4 +120,5 @@ def expand_pandas_output():
 
 if __name__ == '__main__':
     # show_time_series_by_year()
-    show_doctors()
+    # show_doctors()
+    show_legend()
