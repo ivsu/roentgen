@@ -498,7 +498,7 @@ class Researcher:
             # обновляем старых ботов, если это необходимо
             bots_refactor(self.bots)
             # устанавливаем ботам параметры из hp
-            set_from_hp(self.bots, ['end_shifts'], unlearned=True)
+            set_from_hp(self.bots, ['n_epochs', 'warmup_epochs', 'decay_epochs', 'end_shifts'], unlearned=True)
             # восстанавливаем хэши
             self.hashes = [bot.hash for bot in self.bots.values()]
             n_search = self.hp.get('n_search')

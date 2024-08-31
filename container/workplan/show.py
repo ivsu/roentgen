@@ -68,7 +68,7 @@ def dashboard(metrics, dataset, forecasts, learning_rates, bot, total_periods, n
         subplot_titles=('Функция ошибки / LR', 'MASE / sMAPE',
                         # f'Прогноз/факт [{CHANNEL_NAMES[ts_index]}]')
                         f'Прогноз/факт [...]'),
-        horizontal_spacing=0.1,
+        horizontal_spacing=0.08,
         specs=[[{'secondary_y': True}, {'secondary_y': False}, {'secondary_y': False}]]
     )
 
@@ -92,6 +92,8 @@ def dashboard(metrics, dataset, forecasts, learning_rates, bot, total_periods, n
         freq=freq,
     ).to_timestamp()
 
+    trace_index = 0
+
     # loss
 
     # стандартное отклонение ±1
@@ -104,6 +106,7 @@ def dashboard(metrics, dataset, forecasts, learning_rates, bot, total_periods, n
         ),
         row=1, col=1, secondary_y=False,
     )
+    trace_index += 1
     fig.add_trace(
         go.Scatter(
             x=epochs, y=loss_mean - loss_std,
@@ -116,6 +119,7 @@ def dashboard(metrics, dataset, forecasts, learning_rates, bot, total_periods, n
         ),
         row=1, col=1, secondary_y=False,
     )
+    trace_index += 1
     # среднее значение ошибки на эпоху
     fig.add_trace(
         go.Scatter(
@@ -126,16 +130,18 @@ def dashboard(metrics, dataset, forecasts, learning_rates, bot, total_periods, n
         ),
         row=1, col=1, secondary_y=False,
     )
+    trace_index += 1
     # learning rates
     fig.add_trace(
         go.Scatter(
             x=epochs, y=learning_rates,
             mode='lines',
-            line=dict(width=0.8, color='rgba(178, 34, 34, 0.5)'),  # Firebrick
+            line=dict(width=0.8, color='rgba(30,144,255, 0.5)'),  # DodgerBlue
             name="Learning rate"
         ),
         row=1, col=1, secondary_y=True,
     )
+    trace_index += 1
 
     # MASE/sMAPE
 
@@ -149,6 +155,7 @@ def dashboard(metrics, dataset, forecasts, learning_rates, bot, total_periods, n
         ),
         row=1, col=2
     )
+    trace_index += 1
 
     # План / Факт
 
@@ -175,6 +182,7 @@ def dashboard(metrics, dataset, forecasts, learning_rates, bot, total_periods, n
         ),
         row=1, col=3
     )
+    trace_index += 1
     fig.add_trace(
         go.Scatter(
             x=index[-forecast_periods:],
@@ -186,6 +194,7 @@ def dashboard(metrics, dataset, forecasts, learning_rates, bot, total_periods, n
         ),
         row=1, col=3
     )
+    trace_index += 1
     # медиана прогноза
     fig.add_trace(
         go.Scatter(
@@ -197,6 +206,7 @@ def dashboard(metrics, dataset, forecasts, learning_rates, bot, total_periods, n
         ),
         row=1, col=3
     )
+    trace_index += 1
     # истинное значение
     fig.add_trace(
         go.Scatter(
@@ -219,6 +229,7 @@ def dashboard(metrics, dataset, forecasts, learning_rates, bot, total_periods, n
         ),
         row=1, col=3
     )
+    trace_index += 1
     # истинное значение -104 недели назад
     y = planfact[ts_index]['fact_2y_ago']
     x = index[-total_periods * prediction_len:][-len(y):]
@@ -232,6 +243,8 @@ def dashboard(metrics, dataset, forecasts, learning_rates, bot, total_periods, n
         ),
         row=1, col=3
     )
+    trace_index += 1
+    # todo: trace_index -> [4, 5, 6, 7]
 
     filter_buttons = []
     for i, channel in enumerate(CHANNEL_NAMES):
@@ -270,15 +283,20 @@ def dashboard(metrics, dataset, forecasts, learning_rates, bot, total_periods, n
 
     #
     # дополнительно отрисуем функции ошибок по каждой стадии
+    color_step = 24
     for stage in range(losses.shape[0]):
         # среднее значение ошибки на эпоху
         loss_mean = losses[stage].mean(axis=1)
         fig.add_trace(
             go.Scatter(
                 x=epochs, y=loss_mean,
-                name=f'Stage {stage}',
+                name=f'Этап {stage + 1}',
                 mode='lines',
-                line=dict(width=0.5, color='rgba(34, 139, 34, 0.7)'),  # forestgreen
+                line=dict(
+                    # width=1.0,
+                    # color=f'rgba({min(34 + stage * color_step, 255)}, 139, {min(34 + stage * color_step, 255)}, 1)'
+                    color=f'rgba({1 + 1}, 139, 255, 1.0)'
+                ),  # forestgreen ++
                 # showlegend=stage == 0,
             ),
             row=1, col=1
@@ -295,18 +313,21 @@ def dashboard(metrics, dataset, forecasts, learning_rates, bot, total_periods, n
         ],
     )
 
-    fig.update_xaxes(title_text="Эпоха", row=1, col=1)
-    fig.update_yaxes(title_text="Negative Log Likelihood (NLL)", row=1, col=1, secondary_y=False)
-    fig.update_yaxes(title_text="Learning Rate", row=1, col=1, secondary_y=True)
+    fig.update_xaxes(title_text="Эпоха", row=1, col=1, tickfont={'size': 11})
+    fig.update_yaxes(title_text="Negative Log Likelihood (NLL)", row=1, col=1, secondary_y=False,
+                     tickfont={'size': 11})
+    fig.update_yaxes(title_text="Learning Rate", row=1, col=1, secondary_y=True,
+                     tickformat='4.0e', tickfont={'size': 11})
 
-    fig.update_xaxes(title_text="MASE", row=1, col=2)
-    fig.update_yaxes(title_text="sMAPE", row=1, col=2)
+    fig.update_xaxes(title_text="MASE", row=1, col=2, tickfont={'size': 11})
+    fig.update_yaxes(title_text="sMAPE", row=1, col=2, tickfont={'size': 11})
 
-    fig.update_xaxes(title_text="Период: " + freq, row=1, col=3)
-    fig.update_yaxes(title_text="Количество исследований", row=1, col=3)
+    fig.update_xaxes(title_text="Период: " + freq, row=1, col=3, tickfont={'size': 11})
+    fig.update_yaxes(title_text="Количество исследований", row=1, col=3, tickfont={'size': 11})
 
     # common
     fig.update_yaxes(title_font=dict(size=11), title_standoff=5)
+    fig.update_xaxes(title_font=dict(size=11))
 
     fig.show()
 

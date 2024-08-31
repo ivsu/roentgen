@@ -1,9 +1,13 @@
 import numpy as np
 import pandas as pd
+import os
 
+from schedule.dataloader import DataLoader
 from workplan.datamanager import DataManager, CHANNEL_NAMES
 from workplan.hyperparameters import Hyperparameters
 from workplan.show import time_series_by_year
+import settings
+
 
 
 def convert_dataset(ds, skip_start_weeks=0, verbose=0) -> list[dict]:
@@ -84,5 +88,24 @@ def show_time_series_by_year():
     time_series_by_year(data)
 
 
+def show_doctors():
+    """Отображает датафрейм с врачами"""
+    dataloader = DataLoader()
+    doctor_df = dataloader.get_doctors()
+    doctor_df.drop(['uid'], axis=1, inplace=True)
+    if os.environ['RUN_ENV'] == 'COLAB':
+        doctor_df
+    else:
+        expand_pandas_output()
+        print(doctor_df.head(10))
+
+
+def expand_pandas_output():
+    pd.set_option('display.max_rows', 500)
+    pd.set_option('display.max_columns', 500)
+    pd.set_option('display.width', 1000)
+
+
 if __name__ == '__main__':
-    show_time_series_by_year()
+    # show_time_series_by_year()
+    show_doctors()

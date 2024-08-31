@@ -83,6 +83,6 @@ if __name__ == '__main__':
 
     search_hyperparameters(
         # mode='test',
-        mode='genetic', end_shifts=[0]
+        mode='genetic', end_shifts=[-10, -5, 0]
     )
     # learn_best_bots()

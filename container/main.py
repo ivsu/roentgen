@@ -1,10 +1,11 @@
 import sys
 
-from common.showdata import show_time_series_by_year
+from common.showdata import show_time_series_by_year, show_doctors
 from workplan.planner import search_hyperparameters, learn_best_bots
 
 VALID_ARGS = [
     '--show-time-series-by-year',
+    '--show-doctors',
     '--search-hyperparameters',
     '--learn-best-bots'
 ]
@@ -27,6 +28,8 @@ if __name__ == '__main__':
 
     if mode == '--show-time-series-by-year':
         show_time_series_by_year()
+    elif mode == '--show-doctors':
+        show_doctors()
     elif mode == '--search-hyperparameters':
         search_hyperparameters()
     elif mode == '--learn-best-bots':
