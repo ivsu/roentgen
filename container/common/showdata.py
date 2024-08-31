@@ -105,7 +105,7 @@ def show_doctors():
 
 
 def show_legend():
-    print('Расшифровка модальностей врачей')
+    print('Расшифровка модальностей врачей:')
     print("\n".join(f'{k:>7}: {v}' for k, v in CHANNEL_LEGEND.items()))
 
 
