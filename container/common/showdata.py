@@ -6,7 +6,7 @@ from schedule.dataloader import DataLoader
 from workplan.datamanager import DataManager, CHANNEL_NAMES
 from workplan.hyperparameters import Hyperparameters
 from workplan.show import time_series_by_year
-import settings  # загружается, чтобы сформировать переменную среды
+# import settings  # загружается, чтобы сформировать переменную среды RUN_ENV
 
 
 CHANNEL_LEGEND = {
@@ -100,15 +100,12 @@ def show_doctors():
     dataloader = DataLoader()
     doctor_df = dataloader.get_doctors()
     doctor_df.drop(['uid'], axis=1, inplace=True)
-    if os.environ['RUN_ENV'] == 'COLAB':
-        doctor_df
-    else:
-        expand_pandas_output()
-        print(doctor_df.head(10))
+    expand_pandas_output()
+    print(doctor_df.head(10))
 
 
 def show_legend():
-    print('Расшировка модальностей врачей')
+    print('Расшифровка модальностей врачей')
     print("\n".join(f'{k:>7}: {v}' for k, v in CHANNEL_LEGEND.items()))
 
 
