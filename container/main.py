@@ -44,4 +44,4 @@ if __name__ == '__main__':
         learn_best_bots()
     elif mode == '--calculate-schedule':
         raise NotImplementedError()
-        calculate_schedule(datetime(2024, 1, 1))
+        # calculate_schedule(datetime(2024, 1, 1))

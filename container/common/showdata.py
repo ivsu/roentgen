@@ -176,32 +176,32 @@ def show_sample_example(batch_size):
     )
 
     print(f'Частотность данных: {freq}')
-    print(f'Глубина предикта: {prediction_len}')
+    print(f'Глубина предикта: {prediction_len} недель')
     print(f'Динамические признаки: {time_features}')
     print(f'Временные лаги (на сколько шагов "смотрим назад"): {lags_sequence}')
 
     for sample in train_dataloader:
         print('\nСостав данных одного сэмпла:')
         data = sample['static_categorical_features']
-        print(f'Статические временные признаки / static_categorical_features, shape {tuple(data.shape)}:')
+        print(f'\nСтатические временные признаки / static_categorical_features, shape {tuple(data.shape)}:')
         print(data[:, 0])
         data = sample['past_values']
-        print(f'Прошлый временной ряд / past_values, shape {tuple(data.shape)}. Пример:')
+        print(f'\nПрошлый временной ряд / past_values, shape {tuple(data.shape)}. Пример:')
         print(data[0, :])
         data = sample['past_observed_mask']
-        print(f'Маска прошлого временного ряда / past_observed_mask, shape {tuple(data.shape)}. Пример:')
+        print(f'\nМаска прошлого временного ряда / past_observed_mask, shape {tuple(data.shape)}. Пример:')
         print(data[0, :])
         data = sample['past_time_features']
-        print(f'Прошлые временные признаки / past_time_features, shape {tuple(data.shape)}. Пример:')
+        print(f'\nПрошлые временные признаки / past_time_features, shape {tuple(data.shape)}. Пример:')
         print(data[0, -10:, :])
         data = sample['future_values']
-        print(f'Будущий временной ряд / future_values, shape {tuple(data.shape)}. Пример:')
+        print(f'\nБудущий временной ряд / future_values, shape {tuple(data.shape)}. Пример:')
         print(data[0, :])
         data = sample['future_observed_mask']
-        print(f'Маска будущего временного ряда / future_observed_mask, shape {tuple(data.shape)}. Пример:')
+        print(f'\nМаска будущего временного ряда / future_observed_mask, shape {tuple(data.shape)}. Пример:')
         print(data[0, :])
         data = sample['future_time_features']
-        print(f'Будущие временные признаки / future_time_features, shape {tuple(data.shape)}. Пример:')
+        print(f'\nБудущие временные признаки / future_time_features, shape {tuple(data.shape)}. Пример:')
         print(data[0, -10:, :])
 
 
