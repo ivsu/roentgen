@@ -191,7 +191,7 @@ def create_train_dataloader(
     instance_splitter = create_instance_splitter(config, "train")
 
     # сплиттер будет рандомно сэмплировать из временного ряда окно длиной:
-    # context length + lags + prediction length (из 4-х возможных временных рядов);
+    # context length + lags + prediction length (одного из возможных временных рядов);
     # возвращает итератор
     stream = Cyclic(transformed_data).stream()
     training_instances = instance_splitter.apply(

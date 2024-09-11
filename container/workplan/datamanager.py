@@ -21,6 +21,8 @@ COLLAPSED_CHANNEL_NAMES = ['kt', 'mrt', 'rg', 'flg', 'mmg', 'dens']
 # словарь с именами и индексами каналов данных
 CHANNEL_INDEX = {name: ch for ch, name in enumerate(CHANNEL_NAMES)}
 
+FREQ = None
+
 
 def generator(df, splits, split, prediction_len, end_shift):
     """
@@ -64,6 +66,25 @@ def generator(df, splits, split, prediction_len, end_shift):
         }
 
 
+@lru_cache(10_000)
+def _convert_to_pandas_period(date):
+    """
+    Конвертирует дату в pd.Period соответствующей частоты.
+    Данные преобразования кэшируются.
+    """
+    return pd.Period(date, FREQ)
+
+
+def _transform_start_field(batch):
+    """
+    Конвертирует признак start в pd.Period соответствующей частоты по батчу.
+    Используется для конвертации на лету.
+    """
+    # данные преобразования кэшируются
+    batch["start"] = [_convert_to_pandas_period(date) for date in batch["start"]]
+    return batch
+
+
 class DataManager:
 
     def __init__(self):
@@ -77,7 +98,7 @@ class DataManager:
         # глубина предсказания - длина предсказываемой последовательности
         self.prediction_len = None
         # частота данных
-        self.freq = None
+        # self.freq = None
         # длина временного ряда
         self.ts_len = None
         # количество каналов данных
@@ -126,7 +147,9 @@ class DataManager:
 
     def read_and_prepare(self, freq, prediction_len):
         """ Подготовка источника данных - DataFrame """
-        self.freq = freq
+        # self.freq = freq
+        global FREQ
+        FREQ = freq
         self.prediction_len = prediction_len
         # загружаем данные в датафрейм
         self.read()
@@ -141,26 +164,9 @@ class DataManager:
         ))
         # используем функциональность датасета set_transform для конвертации
         # признака start в pd.Period на лету
-        ds.set_transform(self._transform_start_field)
+        ds.set_transform(_transform_start_field)
 
         return ds
-
-    @lru_cache(10_000)
-    def _convert_to_pandas_period(self, date):
-        """
-        Конвертирует дату в pd.Period соответствующей частоты.
-        Данные преобразования кэшируются.
-        """
-        return pd.Period(date, self.freq)
-
-    def _transform_start_field(self, batch):
-        """
-        Конвертирует признак start в pd.Period соответствующей частоты по батчу.
-        Используется для конвертации на лету.
-        """
-        # данные преобразования кэшируются
-        batch["start"] = [self._convert_to_pandas_period(date) for date in batch["start"]]
-        return batch
 
     def get_ts_len(self):
         return self.ts_len
@@ -173,23 +179,29 @@ if __name__ == '__main__':
     os.chdir('..')
     logger.setup(level=logger.INFO, layout='debug')
 
-    check_hp = Hyperparameters()
-    # сгенерируем набор дефолтных гиперпараметров и посмотрим на их значения
-    values, bot_hash = check_hp.generate(mode='default', hashes=[])
-    # print(check_hp.repr(values))
+    hp = Hyperparameters()
 
     # создаём менеджер датасета и готовим исходный DataFrame для формирования выборок
     dm = DataManager()
     dm.read_and_prepare(
-        freq=check_hp.get('freq'),
-        prediction_len=check_hp.get('prediction_len')
+        freq=hp.get('freq'),
+        prediction_len=hp.get('prediction_len')
     )
 
+    context = {
+        # текущая общая длина временного ряда (для случая, когда используется разное количество данных)
+        'ts_len': dm.get_ts_len(),
+        'n_channels': len(CHANNEL_NAMES)
+    }
+
+    # сгенерируем набор дефолтных гиперпараметров и посмотрим на их значения
+    values, bot_hash = hp.generate(mode='default', hashes=[], context=context)
+    # print(test_hp.repr(values))
+
     # формируем выборки
-    train_dataset = Dataset.from_generator(generator, gen_kwargs={
-        'df': dm.df, 'splits': 2, 'split': 'train', 'prediction_len': check_hp.get('prediction_len')})
-    test_dataset = Dataset.from_generator(generator, gen_kwargs={
-        'df': dm.df, 'splits': 2, 'split': 'test', 'prediction_len': check_hp.get('prediction_len')})
+    train_dataset = dm.from_generator(splits=2, split='train', end_shift=0)
+    test_dataset = dm.from_generator(splits=2, split='test', end_shift=0)
 
     for sample in train_dataset:
         print(sample)
+

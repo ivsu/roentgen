@@ -31,6 +31,21 @@ MUTATE_RATE = 0.01  # количество случайных переставл
 TMP_FILE_PATH = '/Users/ivan/Documents/CIFROPRO/Проекты/Нейронки/Расписание рентген-центра/'
 
 
+def calculate_schedule(month_start):
+    n_generations = 30
+    population_size = 100
+    n_survived = 50
+
+    main_scheduler = Scheduler(
+        month_start,
+        plan_version='validation',
+        n_generations=n_generations,
+        population_size=population_size,
+        n_survived=n_survived,
+        mode=mode,
+    )
+    main_scheduler.run(save=False)
+
 def plot(x, y_dict, title):
     for key in y_dict.keys():
         y = y_dict[key]

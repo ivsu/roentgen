@@ -1,17 +1,19 @@
 import numpy as np
 import pandas as pd
 import os
+from transformers import TimeSeriesTransformerConfig
 
 from schedule.dataloader import DataLoader
 from workplan.datamanager import DataManager, CHANNEL_NAMES
 from workplan.hyperparameters import Hyperparameters
+from workplan.dataloaders import create_train_dataloader
 from workplan.show import time_series_by_year
 # import settings  # загружается, чтобы сформировать переменную среды RUN_ENV
 
 
 CHANNEL_LEGEND = {
     'kt': 'КТ', 'kt_ce1': 'КТ с контрастом, вариант 1', 'kt_ce2': 'КТ с контрастом, вариант 2',
-    'mrt': 'МРТ', 'mrt_ce1': 'МРТ с контрастом, вариант 1', 'mrt_ce2': 'МРТ с контрастом, вариант 1',
+    'mrt': 'МРТ', 'mrt_ce1': 'МРТ с контрастом, вариант 1', 'mrt_ce2': 'МРТ с контрастом, вариант 2',
     'rg': 'Рентгенография', 'flg': 'Флюорография',
     'mmg': 'Маммография', 'dens': 'Денситометрия'
 }
@@ -107,6 +109,100 @@ def show_doctors():
 def show_legend():
     print('Расшифровка модальностей врачей:')
     print("\n".join(f'{k:>7}: {v}' for k, v in CHANNEL_LEGEND.items()))
+
+
+def show_sample_example(batch_size):
+    hp = Hyperparameters()
+
+    # создаём менеджер датасета и готовим исходный DataFrame для формирования выборок
+    dm = DataManager()
+    dm.read_and_prepare(
+        freq=hp.get('freq'),
+        prediction_len=hp.get('prediction_len')
+    )
+
+    context = {
+        # текущая общая длина временного ряда (для случая, когда используется разное количество данных)
+        'ts_len': dm.get_ts_len(),
+        'n_channels': len(CHANNEL_NAMES)
+    }
+
+    # сгенерируем набор дефолтных гиперпараметров и посмотрим на их значения
+    values, bot_hash = hp.generate(mode='default', hashes=[], context=context)
+    # print(test_hp.repr(values))
+
+    # формируем выборки
+    train_dataset = dm.from_generator(splits=2, split='train', end_shift=0)
+    test_dataset = dm.from_generator(splits=2, split='test', end_shift=0)
+
+    # for sample in train_dataset:
+    #     print(sample)
+
+    time_features = hp.time_features_set[-1].copy()
+    lags_sequence = hp.lags_sequence_set[-1].copy()
+
+    prediction_len = hp.get('prediction_len')
+    freq = hp.get('freq')
+
+    # тестовая конфигурация
+    config = TimeSeriesTransformerConfig(
+        # длина предсказываемой последовательности
+        prediction_length=prediction_len,
+        # длина контекста:
+        context_length=prediction_len,
+        # временные лаги
+        lags_sequence=lags_sequence,
+        # количество временных признака + 1 (возраст временного шага) будет добавлен при трансформации
+        num_time_features=len(time_features) + 1,
+        # единственный статический категориальный признак - ID серии:
+        num_static_categorical_features=1,
+        # количество каналов
+        cardinality=[len(CHANNEL_NAMES)],
+        # размерность эмбеддингов
+        embedding_dimension=[2],
+        # параметры трансформера
+        encoder_layers=2,
+        decoder_layers=2,
+        d_model=32,
+    )
+    # формируем загрузчик данных
+    train_dataloader = create_train_dataloader(
+        config=config,
+        freq=freq,
+        data=train_dataset,
+        batch_size=batch_size,
+        num_batches_per_epoch=1,
+        time_features=time_features,
+    )
+
+    print(f'Частотность данных: {freq}')
+    print(f'Глубина предикта: {prediction_len}')
+    print(f'Динамические признаки: {time_features}')
+    print(f'Временные лаги (на сколько шагов "смотрим назад"): {lags_sequence}')
+
+    for sample in train_dataloader:
+        print('\nСостав данных одного сэмпла:')
+        data = sample['static_categorical_features']
+        print(f'Статические временные признаки / static_categorical_features, shape {tuple(data.shape)}:')
+        print(data[:, 0])
+        data = sample['past_values']
+        print(f'Прошлый временной ряд / past_values, shape {tuple(data.shape)}. Пример:')
+        print(data[0, :])
+        data = sample['past_observed_mask']
+        print(f'Маска прошлого временного ряда / past_observed_mask, shape {tuple(data.shape)}. Пример:')
+        print(data[0, :])
+        data = sample['past_time_features']
+        print(f'Прошлые временные признаки / past_time_features, shape {tuple(data.shape)}. Пример:')
+        print(data[0, -10:, :])
+        data = sample['future_values']
+        print(f'Будущий временной ряд / future_values, shape {tuple(data.shape)}. Пример:')
+        print(data[0, :])
+        data = sample['future_observed_mask']
+        print(f'Маска будущего временного ряда / future_observed_mask, shape {tuple(data.shape)}. Пример:')
+        print(data[0, :])
+        data = sample['future_time_features']
+        print(f'Будущие временные признаки / future_time_features, shape {tuple(data.shape)}. Пример:')
+        print(data[0, -10:, :])
 
 
 def expand_pandas_output():
