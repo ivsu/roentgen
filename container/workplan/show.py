@@ -1,6 +1,7 @@
 import gc
 import numpy as np
 import pandas as pd
+import copy
 from gluonts.dataset.field_names import FieldName
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
@@ -60,8 +61,9 @@ def time_series_by_year(data: list[dict]):
 
 
 def dashboard(metrics, dataset, forecasts, learning_rates, bot, total_periods, name):
-    metrics = metrics.copy()
-    learning_rates = learning_rates.copy()
+    metrics = copy.deepcopy(metrics)
+    learning_rates = copy.deepcopy(learning_rates)
+    forecasts = copy.deepcopy(forecasts)
 
     fig = make_subplots(
         rows=1, cols=3,

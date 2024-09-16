@@ -299,9 +299,14 @@ class Bot:
         else:
             raise KeyError(f'У бота отсутствует гиперпараметр с ключом: {key}.')
 
+    def set_result(self, metrics: dict, score, train_time):
+        self.metrics = metrics
+        self.score = score
+        self.train_time = train_time
+
     def get_lags_sequence(self):
-        index = self.get('lags_sequence_index')
-        return self.lags_sequence_set[index]
+            index = self.get('lags_sequence_index')
+            return self.lags_sequence_set[index]
 
     def get_time_features(self):
         index = self.get('time_features_index')
@@ -672,15 +677,13 @@ class Researcher:
                         smape_metrics.append(self.gen.random(size=len(train_ds)).tolist())
 
                 # print(f'forecasts: {forecasts.shape}')
-                # запоминаем метрики бота
-                bot.metrics = {
-                    'losses': losses,
-                    'mase': mase_metrics,
-                    'smape': smape_metrics,
-                }
-                bot.train_time = train_sec
-                # оценка бота - среднее значение ошибки sMAPE по всем временным рядам
-                bot.score = np.array(smape_metrics).mean()
+                # запоминаем результаты бота
+                bot.set_result(
+                    metrics=dict(losses=losses, mase=mase_metrics, smape=smape_metrics),
+                    # оценка бота - среднее значение ошибки sMAPE по всем временным рядам
+                    score=np.array(smape_metrics).mean(),
+                    train_time=train_sec
+                )
 
                 # сохраняем бота на диск
                 if self.save and self.mode != 'test':
