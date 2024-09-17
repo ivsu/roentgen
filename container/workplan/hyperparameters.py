@@ -2,6 +2,7 @@
 import hashlib
 import numpy as np
 import os
+import copy
 from gluonts.time_feature import (
     month_of_year, week_of_year
 )
@@ -19,7 +20,7 @@ class Hyperparameters:
         self.fixed = dict(
             # пространство имён ботов, чтобы различать их на диске,
             # если потребуется задать другой набор гиперпараметров
-            namespace='01',
+            namespace='02',
             # частота данных
             freq='W-SUN',
             # длина предсказываемой последовательности
@@ -41,10 +42,15 @@ class Hyperparameters:
             # количество случайных ботов в каждой новой популяции
             n_random=5,
             # сдвиг на количество шагов (с конца) при обучении бота на временном ряде разной длины
-            end_shifts=[-20, -15, -10, -5, 0]
+            end_shifts=[-20, -15, -10, -5, 0],
+            # количество батчей на эпоху - рассчитываемый
+            num_batches_per_epoch=None
         )
+        # имена расчётных параметров
+        self.calculated = ['num_batches_per_epoch']
         # имена фиксированных параметров, которые включаются в хэш бота
-        self.hashable = ['namespace', 'prediction_len', 'warmup_epochs', 'n_epochs', 'end_shifts']
+        self.hashable = ['namespace', 'prediction_len', 'warmup_epochs', 'n_epochs',
+                         'end_shifts', 'num_batches_per_epoch']
         # дополнительные признаки - временные лаги - на сколько недель мы "смотрим назад"
         self.lags_sequence_set = [
             [1, 2, 3, 4, 5, 51, 52, 53, 103, 104, 105],
@@ -77,10 +83,9 @@ class Hyperparameters:
             encoder_layers=[1, 2, 4, 8],
             decoder_layers=[1, 2, 4, 8],
             d_model=[8, 16, 32, 64],
-        )
-        # расчётные параметры
-        self.calculated = dict(
-            num_batches_per_epoch=None,
+            # distribution_output (string, optional, defaults to "student_t")
+            # The distribution emission head for the model.
+            # Could be either “student_t”, “normal” or “negative_binomial”.
         )
         # индексы динамических гиперпараметров по умолчанию (для режима default)
         self.defaults = [3, 1, 4, 0, 1, 1, 1, 1]
@@ -105,7 +110,7 @@ class Hyperparameters:
         else:
             raise KeyError(f'Фиксированные гиперпараметры не содержат ключа: {key}')
 
-    def generate(self, mode, hashes, context, current_values=None):
+    def generate(self, mode, hashes, current_values=None):
         """
         Генерирует набор значений гиперпараметров в заданном режиме.
 
@@ -113,18 +118,15 @@ class Hyperparameters:
         :param hashes: список хэшей имеющихся гиперпараметров для проверки
                 новых ботов на уникальность
         :param current_values: имеющийся набор значений для режима data_nearest
-        :param context: переменные, передаваемые из Researcher, для определения рассчитываемых параметров
         :returns: словарь гиперпараметров и их хэш
         """
-        # сначала копируем значения фиксированных параметров и добавляем ключи для расчитываемых
-        values = self.fixed.copy() | self.calculated.copy()
+        # сначала копируем значения фиксированных параметров
+        values = copy.deepcopy(self.fixed.copy())
 
         # установка параметров по умолчанию
         if mode == 'default':
             for i, key in enumerate(self.space):
                 values[key] = self.space[key][self.defaults[i]]
-            # рассчитываем вычисляемые параметры
-            self.calculate(values, context)
             return values, self.get_hash(values)
 
         # для режима поиска ближайшего значения сформируем исходную маску
@@ -193,8 +195,6 @@ class Hyperparameters:
             else:
                 raise KeyError("Неверный режим: " + mode)
 
-            # рассчитываем вычисляемые параметры
-            self.calculate(values, context)
             # формируем хэш полученного набора значений
             bot_hash = self.get_hash(values)
             # проверяем на уникальность
@@ -209,13 +209,6 @@ class Hyperparameters:
             break
 
         return values, bot_hash
-
-    @classmethod
-    def calculate(cls, values, context):
-        """Рассчитывает количество батчей на эпоху так, чтобы все данные поместились в последовательности"""
-        min_sequence_len = values['prediction_len'] * (1 + values['context_ratio'])
-        n_sequencies_total = context['n_channels'] * (context['ts_len'] - min_sequence_len)
-        values['num_batches_per_epoch'] = int(n_sequencies_total / values['train_batch_size']) + 1
 
     @classmethod
     def _get_square_mask(cls, shape, pos, distance):
@@ -272,7 +265,7 @@ class Hyperparameters:
 
     def repr(self, values):
         output = "Параметры:\n"
-        max_len = max([len(key) for key in dict(self.fixed, **self.space, **self.calculated).keys()])
+        max_len = max([len(key) for key in dict(self.fixed, **self.space).keys()])
         for k, v in values.items():
             output += f'{k:>{max_len}}: {v}\n'
         return output
@@ -284,12 +277,6 @@ if __name__ == '__main__':
 
     check_hp = Hyperparameters()
 
-    check_context = {
-        # текущая общая длина временного ряда (для случая, когда используется разное количество данных)
-        'ts_len': 126,
-        'n_channels': 10
-    }
-
     # сгенерируем набор дефолтных гиперпараметров и посмотрим на их значения
-    check_values, check_bot_hash = check_hp.generate(mode='default', hashes=[], context=check_context)
+    check_values, check_bot_hash = check_hp.generate(mode='default', hashes=[])
     print(check_hp.repr(check_values))

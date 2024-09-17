@@ -3,6 +3,7 @@ import glob
 import gc
 from datetime import datetime
 import numpy as np
+import copy
 
 # для обучения модели
 from accelerate import Accelerator
@@ -25,6 +26,8 @@ logger = Logger(__name__)
 MASE_METRIC_PERIODICITY = 52
 # признак управления LR после каждого батча (иначе в рамках эпохи применяется один и тот же LR ко всем батчам)
 CHANGE_LR_ON_EVERY_BATCH = True
+# количество временных рядов
+N_CHANNELS = len(CHANNEL_NAMES)
 
 
 def train(model, config, dataloader, bot, stage_prefix):
@@ -267,10 +270,10 @@ class Bot:
 
         # список ключей изменяемых параметров
         self.changeable = [k for k in hp.space.keys()]
-        self.printable = self.changeable + [k for k in hp.calculated.keys()]
+        self.printable = self.changeable + hp.calculated
         # возможные временные лаги и фичи, заданные в гиперпараметрах
-        self.lags_sequence_set = hp.lags_sequence_set.copy()
-        self.time_features_set = hp.time_features_set.copy()
+        self.lags_sequence_set = copy.deepcopy(hp.lags_sequence_set)
+        self.time_features_set = copy.deepcopy(hp.time_features_set)
         # сокращённые названия параметров для печати
         self.cuts = ['bs', 'cr', 'ls', 'tf', 'emb', 'enc', 'dec', 'dm', 'nb']
         assert len(self.cuts) == len(self.printable)
@@ -282,8 +285,16 @@ class Bot:
 
     def activate(self, values, bot_hash):
         """Инициализирует значения гиперпараметров бота и сохраняет хэш их значений"""
-        self.values = values.copy()
+        self.values = copy.deepcopy(values)
         self.hash = bot_hash
+
+    def calc_params(self, ts_len):
+        """Рассчитывает количество батчей на эпоху так, чтобы все данные поместились в последовательности"""
+        # коэффициент увеличения количества временных рядов в эпохе, т.к. они сэмплируются в сеть рандомно
+        k_expand = 1.4
+        min_sequence_len = self.values['prediction_len'] * (1 + self.values['context_ratio'])
+        n_sequencies_total = N_CHANNELS * (ts_len - min_sequence_len)
+        self.values['num_batches_per_epoch'] = int(k_expand * n_sequencies_total / self.values['train_batch_size'])
 
     def get(self, key):
         """Возвращает значение гиперпараметра бота по его ключу"""
@@ -435,12 +446,6 @@ class Researcher:
                  train=True, save_bots=True
                  ):
         self.datamanager = datamanager
-        # контекст, передаваемый для генерации гиперпараметров ботов
-        self.context = {
-            # текущая общая длина временного ряда (для случая, когда используется разное количество данных)
-            'ts_len': datamanager.get_ts_len(),
-            'n_channels': len(CHANNEL_NAMES)
-        }
         self.hp = hp
         self.show_graphs = show_graphs
         self.total_periods = total_periods
@@ -618,12 +623,12 @@ class Researcher:
 
                 # получаем модель
                 time_features = bot.get_time_features()
-                mb = ModelBuilder(bot, n_channels=self.datamanager.get_channels_num(),
+                mb = ModelBuilder(bot, n_channels=N_CHANNELS,
                                   n_time_features=len(time_features))
                 model, config = mb.get()
                 # print(f'model distribution_output: {config.distribution_output}')
 
-                forecasts = np.empty((self.datamanager.get_channels_num(), config.num_parallel_samples, 0))
+                forecasts = np.empty((N_CHANNELS, config.num_parallel_samples, 0))
                 losses, mase_metrics, smape_metrics = [], [], []
                 train_sec = 0
 
@@ -633,6 +638,10 @@ class Researcher:
                     # формируем выборки
                     train_ds = self.datamanager.from_generator(splits=2, split='train', end_shift=end_shift)
                     test_ds = self.datamanager.from_generator(splits=2, split='test', end_shift=end_shift)
+                    ts_len = len(train_ds[0]['target'])
+                    print(f'ts_len: {ts_len}')
+                    bot.calc_params(ts_len)
+                    print(f'num_batches_per_epoch: {bot.get("num_batches_per_epoch")}')
 
                     if self.train:
                         # формируем загрузчик данных
@@ -657,7 +666,7 @@ class Researcher:
                             batch_size=64,
                             time_features=time_features,
                         )
-                        # shape: (n_channels, num_parallel_samples=100, prediction_len),
+                        # shape: (N_CHANNELS, num_parallel_samples=100, prediction_len),
                         forecast = inference(model, test_dataloader, config, device)
                         forecasts = np.concatenate([forecasts, forecast], axis=2)
 
@@ -749,11 +758,10 @@ class Researcher:
 
         # создаём дефолтного бота, если задано
         if mode == 'default':
-            values, bot_hash = self.hp.generate(mode, self.hashes, context=self.context)
+            values, bot_hash = self.hp.generate(mode, self.hashes)
         else:
             # инициализуем значения гиперпараметров случайным образом
-            values, bot_hash = self.hp.generate(mode, self.hashes, context=self.context,
-                                                current_values=values)
+            values, bot_hash = self.hp.generate(mode, self.hashes, current_values=values)
             if values is None:
                 return None
             if keep_hash:
@@ -812,7 +820,7 @@ class Researcher:
             # получаем имена параметров для мутации
             mut_names = self._mutation()
             # print(f'Параметры для мутации: {mut_names}')
-            values = bot.values.copy()
+            values = copy.deepcopy(bot.values)
             for key in bot.changeable:
                 # для мутирующих параметров оставим случайные значения,
                 # остальные перезапишем от родителей
@@ -822,8 +830,6 @@ class Researcher:
                         self.gen.choice(parent_ids)
                     ].values[key]
 
-            # пересчитываем вычисляемые параметры
-            self.hp.calculate(values, self.context)
             # установим хэш для новых значений
             bot_hash = self.hp.get_hash(values)
             self.hashes.append(bot_hash)

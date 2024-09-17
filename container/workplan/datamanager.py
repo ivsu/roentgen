@@ -168,12 +168,6 @@ class DataManager:
 
         return ds
 
-    def get_ts_len(self):
-        return self.ts_len
-
-    def get_channels_num(self):
-        return self.n_channels
-
 
 if __name__ == '__main__':
     os.chdir('..')
@@ -188,14 +182,8 @@ if __name__ == '__main__':
         prediction_len=hp.get('prediction_len')
     )
 
-    context = {
-        # текущая общая длина временного ряда (для случая, когда используется разное количество данных)
-        'ts_len': dm.get_ts_len(),
-        'n_channels': len(CHANNEL_NAMES)
-    }
-
     # сгенерируем набор дефолтных гиперпараметров и посмотрим на их значения
-    values, bot_hash = hp.generate(mode='default', hashes=[], context=context)
+    values, bot_hash = hp.generate(mode='default', hashes=[])
     # print(test_hp.repr(values))
 
     # формируем выборки

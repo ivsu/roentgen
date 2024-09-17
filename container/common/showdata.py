@@ -121,14 +121,8 @@ def show_sample_example(batch_size):
         prediction_len=hp.get('prediction_len')
     )
 
-    context = {
-        # текущая общая длина временного ряда (для случая, когда используется разное количество данных)
-        'ts_len': dm.get_ts_len(),
-        'n_channels': len(CHANNEL_NAMES)
-    }
-
     # сгенерируем набор дефолтных гиперпараметров и посмотрим на их значения
-    values, bot_hash = hp.generate(mode='default', hashes=[], context=context)
+    values, bot_hash = hp.generate(mode='default', hashes=[])
     # print(test_hp.repr(values))
 
     # формируем выборки
