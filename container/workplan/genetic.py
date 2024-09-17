@@ -382,7 +382,7 @@ class Bot:
         params = ''
         delimiter = ''
         for i in range(len(self.cuts)):
-            if formats[i]:
+            if formats[i] and self.values[self.printable[i]]:
                 value = f'{self.values[self.printable[i]]:{formats[i]}}'
             else:
                 value = f'{self.values[self.printable[i]]}'
