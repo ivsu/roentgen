@@ -42,7 +42,7 @@ def search_hyperparameters(mode='genetic', end_shifts=None):
     researcher = Researcher(datamanager, hp,
                             mode=mode,
                             show_graphs=True, total_periods=7,
-                            train=True, save_bots=False)
+                            train=True, save_bots=True)
     researcher.run()
 
 
