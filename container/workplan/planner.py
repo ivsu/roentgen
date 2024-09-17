@@ -23,6 +23,9 @@ def search_hyperparameters(mode='genetic', end_shifts=None):
 
     # создаём инстанс гиперпараметров
     hp = Hyperparameters()
+    # debug
+    hp.set('n_epochs', 3)
+
     if end_shifts is not None:
         hp.fixed['end_shifts'] = end_shifts
 
@@ -83,6 +86,6 @@ if __name__ == '__main__':
 
     search_hyperparameters(
         # mode='test',
-        mode='genetic', end_shifts=[-10, -5, 0]
+        mode='genetic', end_shifts=[-5, 0]
     )
     # learn_best_bots()

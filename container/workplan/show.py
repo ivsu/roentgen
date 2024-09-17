@@ -74,10 +74,36 @@ def dashboard(metrics, dataset, forecasts, learning_rates, bot, total_periods, n
         specs=[[{'secondary_y': True}, {'secondary_y': False}, {'secondary_y': False}]]
     )
 
-    losses = np.asarray(metrics['losses'])  # [stages, epochs, batches]
-    loss_mean = losses.mean(axis=(0, 2))
-    loss_std = losses.mean(axis=2).std(axis=0)
-    epochs = np.arange(losses.shape[1])
+    def calc_loss(losses: list):
+        """Учитывая, что длина последовательности на каждой стадии разная,
+        рассчитаем среднее особым образом:
+
+        :param losses: входной список размерности [stages, epochs, batches]
+        :return: mean - среднее по всем stages и batches для каждой epochs;
+                 std - стандартное отклонение по stages среднего по batches для каждой epochs
+        """
+        mean = []
+        stage_losses = []
+        first_run = True
+        for stage, stage_data in enumerate(losses):
+            stage_losses.append([])
+            for epoch, epoch_data in enumerate(stage_data):
+                if first_run:
+                    mean.append([])
+                mean[epoch] += epoch_data
+                stage_losses[stage].append(np.array(epoch_data).mean())
+            first_run = False
+
+        stage_losses = np.array(stage_losses)
+        mean = np.array(mean).mean(axis=1)
+        std = stage_losses.std(axis=0)
+        return mean, std, stage_losses
+
+    # losses = np.asarray(metrics['losses'])  # [stages, epochs, batches]
+    # loss_mean = losses.mean(axis=(0, 2))
+    # loss_std = losses.mean(axis=2).std(axis=0)
+    loss_mean, loss_std, stage_losses = calc_loss(metrics['losses']) # [stages, epochs, batches]
+    epochs = np.arange(loss_mean.shape[0])
 
     mase = np.array(metrics['mase']).mean(axis=0)  # [stages, channels]
     smape = np.array(metrics['smape']).mean(axis=0)
@@ -138,12 +164,34 @@ def dashboard(metrics, dataset, forecasts, learning_rates, bot, total_periods, n
         go.Scatter(
             x=epochs, y=learning_rates,
             mode='lines',
-            line=dict(width=0.8, color='rgba(30,144,255, 0.5)'),  # DodgerBlue
+            line=dict(width=0.8, color='rgba(178, 34, 34, 0.5)'),  # FireBrick
             name="Learning rate"
         ),
         row=1, col=1, secondary_y=True,
     )
     trace_index += 1
+
+    # дополнительно отрисуем функции ошибок по каждой стадии
+    stages = stage_losses.shape[0]
+    if stages > 1:
+        color_step = int((139 - 34) / (stages - 1))
+        for stage in range(stages):
+            # среднее значение ошибки на эпоху
+            loss_mean = stage_losses[stage]
+            fig.add_trace(
+                go.Scatter(
+                    x=epochs, y=loss_mean,
+                    name=f'Этап {stage + 1}',
+                    mode='lines',
+                    line=dict(
+                        width=0.7,
+                        color=f'rgba({min(34 + stage * color_step, 255)}, 139, {min(34 + stage * color_step, 255)}, 0.7)'
+                    ),  # forestgreen 34, 139, 34
+                    # showlegend=stage == 0,
+                ),
+                row=1, col=1
+            )
+            trace_index += 1
 
     # MASE/sMAPE
 
@@ -172,6 +220,8 @@ def dashboard(metrics, dataset, forecasts, learning_rates, bot, total_periods, n
 
     # print(f'index:\n{index[-forecast_periods:]}')
     # print(f'plan:\n{planfact[0]["plan"]}')
+
+    button_start_index = trace_index
 
     # стандартное отклонение ±1
     fig.add_trace(
@@ -246,7 +296,6 @@ def dashboard(metrics, dataset, forecasts, learning_rates, bot, total_periods, n
         row=1, col=3
     )
     trace_index += 1
-    # todo: trace_index -> [4, 5, 6, 7]
 
     filter_buttons = []
     for i, channel in enumerate(CHANNEL_NAMES):
@@ -277,33 +326,13 @@ def dashboard(metrics, dataset, forecasts, learning_rates, bot, total_periods, n
                 # layout.annotations[0].update(text="Stackoverflow")
                 # dict(subplot_titles=('Функция ошибки', 'MASE/sMAPE',
                 #                      f'Прогноз/факт [{CHANNEL_NAMES[i]}]')),
-                [4, 5, 6, 7]
+                [button_start_index + i for i in range(6)]
             ],
             label=channel,
             method='update'
         ))
 
     #
-    # дополнительно отрисуем функции ошибок по каждой стадии
-    color_step = 24
-    for stage in range(losses.shape[0]):
-        # среднее значение ошибки на эпоху
-        loss_mean = losses[stage].mean(axis=1)
-        fig.add_trace(
-            go.Scatter(
-                x=epochs, y=loss_mean,
-                name=f'Этап {stage + 1}',
-                mode='lines',
-                line=dict(
-                    # width=1.0,
-                    # color=f'rgba({min(34 + stage * color_step, 255)}, 139, {min(34 + stage * color_step, 255)}, 1)'
-                    color=f'rgba({1 + 1}, 139, 255, 1.0)'
-                ),  # forestgreen ++
-                # showlegend=stage == 0,
-            ),
-            row=1, col=1
-        )
-
     fig.update_layout(
         title_text=f'Бот {name}',
         # autosize=False, width=700, height=500,
