@@ -24,7 +24,7 @@ def search_hyperparameters(mode='genetic', end_shifts=None):
     # создаём инстанс гиперпараметров
     hp = Hyperparameters()
     # debug
-    hp.set('n_epochs', 3)
+    # hp.set('n_epochs', 3)
 
     if end_shifts is not None:
         hp.fixed['end_shifts'] = end_shifts
