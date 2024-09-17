@@ -30,7 +30,7 @@ CHANGE_LR_ON_EVERY_BATCH = True
 N_CHANNELS = len(CHANNEL_NAMES)
 
 
-def train(model, config, dataloader, bot, stage_prefix):
+def train(model, config, dataloader, bot, stage_index, n_stages):
     epochs = bot.get('n_epochs')
     warmup_epochs = bot.get('warmup_epochs')
     decay_epochs = bot.get('decay_epochs')
@@ -49,12 +49,13 @@ def train(model, config, dataloader, bot, stage_prefix):
     optimizer = AdamW(model.parameters(), betas=(0.9, 0.95), weight_decay=1e-1)
 
     # будем обучать трансформер с прогревом
+    target_lr = 1e-3 if stage_index == 0 else 1e-4
     scheduler = WarmupAndDecayScheduler(
         optimizer,
         warmup_steps=num_batches * warmup_epochs,
         decay_steps=num_batches * decay_epochs,
         decay_rate=0.3,
-        target_lr=1e-3,
+        target_lr=target_lr,
         initial_lr=5e-5,
         final_lr=1e-5,
         steps_per_epoch=num_batches,
@@ -108,8 +109,9 @@ def train(model, config, dataloader, bot, stage_prefix):
         t = datetime.now() - start_time
 
         end = chr(10) if epoch == epochs - 1 else ''
-        print(f'\r{stage_prefix}'
-              f'epoch: {epoch + 1:3d}'
+        stage_prefix = f'stage: {stage_index + 1}/{n_stages} | '
+        print(f'\rstage: {stage_index + 1}/{n_stages}'
+              f' | epoch: {epoch + 1:3d}'
               f' | mean loss: {mean_loss:.4f}'
               f' | LR: {learning_rates[-1]:.6f}'
               f' | steps: {steps:4d}'
@@ -654,9 +656,8 @@ class Researcher:
                             time_features=time_features,
                         )
                         # обучаем модель
-                        stage_prefix = f'stage: {stage_index + 1}/{len(bot.get("end_shifts"))} | '
                         model, stage_losses, device, stage_train_sec, learning_rates \
-                            = train(model, config, train_dataloader, bot, stage_prefix)
+                            = train(model, config, train_dataloader, bot, stage_index, len(bot.get("end_shifts")))
 
                         # формируем тестовую выборку и делаем инференс
                         test_dataloader = create_test_dataloader(
