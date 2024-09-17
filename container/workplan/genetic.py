@@ -639,9 +639,9 @@ class Researcher:
                     train_ds = self.datamanager.from_generator(splits=2, split='train', end_shift=end_shift)
                     test_ds = self.datamanager.from_generator(splits=2, split='test', end_shift=end_shift)
                     ts_len = len(train_ds[0]['target'])
-                    print(f'ts_len: {ts_len}')
                     bot.calc_params(ts_len)
-                    print(f'num_batches_per_epoch: {bot.get("num_batches_per_epoch")}')
+                    # print(f'ts_len: {ts_len}')
+                    # print(f'num_batches_per_epoch: {bot.get("num_batches_per_epoch")}')
 
                     if self.train:
                         # формируем загрузчик данных
