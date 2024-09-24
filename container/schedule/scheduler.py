@@ -1072,7 +1072,7 @@ if __name__ == '__main__':
         population_size = 4
         n_survived = 2
     else:
-        n_generations = 30
+        n_generations = 10
         population_size = 100
         n_survived = 50
 

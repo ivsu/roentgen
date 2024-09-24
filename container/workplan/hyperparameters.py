@@ -1,4 +1,3 @@
-# import random  # TODO: заменить на генератор
 import hashlib
 import numpy as np
 import os
@@ -10,6 +9,7 @@ from common.logger import Logger
 from settings import BOTS_FOLDER
 
 logger = Logger(__name__)
+
 
 # PROJECT_FOLDER = '/content/drive/MyDrive/university/roentgen/'
 
@@ -51,11 +51,15 @@ class Hyperparameters:
         # имена фиксированных параметров, которые включаются в хэш бота
         self.hashable = ['namespace', 'prediction_len', 'warmup_epochs', 'n_epochs',
                          'end_shifts', 'num_batches_per_epoch']
+        # имена параметров, которые не отображаются в сокращённом выводе repr
+        self.excluded_in_short_mode = ['namespace', 'bots_folder', 'n_search', 'n_bots',
+                                       'n_survived', 'n_random']
         # дополнительные признаки - временные лаги - на сколько недель мы "смотрим назад"
         self.lags_sequence_set = [
             [1, 2, 3, 4, 5, 51, 52, 53, 103, 104, 105],
             [1, 2, 3, 4, 5, 50, 51, 52, 53, 54, 102, 103, 104, 105, 106],
             [51, 52, 53, 103, 104, 105],
+            [52, 104],
             [50, 51, 52, 53, 54, 102, 103, 104, 105, 106],
             [49, 50, 51, 52, 101, 102, 103, 104],
             [52, 53, 54, 55, 104, 105, 106, 107],
@@ -70,8 +74,6 @@ class Hyperparameters:
         self.space = dict(
             # размер батча тренировочной выборки
             train_batch_size=[8, 16, 32, 64, 128],
-            # количество батчей на эпоху
-            # num_batches_per_epoch=[40, 60, 80, 100, 120, 140, 160],
             # соотношение длины контекста к длине предсказываемой последовательности
             context_ratio=[0.8, 1.0, 1.2, 1.4, 1.6, 1.8, 2.0],
             # дополнительные признаки - временные лаги - на сколько недель мы "смотрим назад"
@@ -88,7 +90,7 @@ class Hyperparameters:
             # Could be either “student_t”, “normal” or “negative_binomial”.
         )
         # индексы динамических гиперпараметров по умолчанию (для режима default)
-        self.defaults = [3, 1, 4, 0, 1, 1, 1, 1]
+        self.defaults = [3, 1, 3, 0, 1, 1, 1, 0]
         assert len(self.space) == len(self.defaults)
         # ключи параметров данных (для изменения только параметров данных у лучших ботов)
         self.data_keys = ['train_batch_size', 'context_ratio',
@@ -263,10 +265,16 @@ class Hyperparameters:
             return hashlib.sha256(s.encode("utf-8")).hexdigest()[:32]
         raise Exception('Попытка вычисления хэша на незаданных values')
 
-    def repr(self, values):
+    def repr(self, values, mode=None):
         output = "Параметры:\n"
         max_len = max([len(key) for key in dict(self.fixed, **self.space).keys()])
         for k, v in values.items():
+            if mode == 'short' and k in self.excluded_in_short_mode:
+                continue
+            if k == 'lags_sequence_index':
+                k, v = 'lags_sequence', self.lags_sequence_set[v]
+            if k == 'time_features_index':
+                k, v = 'time_features', self.time_features_set[v]
             output += f'{k:>{max_len}}: {v}\n'
         return output
 

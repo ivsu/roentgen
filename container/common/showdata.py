@@ -4,19 +4,11 @@ import os
 from transformers import TimeSeriesTransformerConfig
 
 from schedule.dataloader import DataLoader
-from workplan.datamanager import DataManager, CHANNEL_NAMES
+from workplan.datamanager import DataManager, get_channels_settings, CHANNEL_LEGEND
 from workplan.hyperparameters import Hyperparameters
 from workplan.dataloaders import create_train_dataloader
 from workplan.show import time_series_by_year
 # import settings  # загружается, чтобы сформировать переменную среды RUN_ENV
-
-
-CHANNEL_LEGEND = {
-    'kt': 'КТ', 'kt_ce1': 'КТ с контрастом, вариант 1', 'kt_ce2': 'КТ с контрастом, вариант 2',
-    'mrt': 'МРТ', 'mrt_ce1': 'МРТ с контрастом, вариант 1', 'mrt_ce2': 'МРТ с контрастом, вариант 2',
-    'rg': 'Рентгенография', 'flg': 'Флюорография',
-    'mmg': 'Маммография', 'dens': 'Денситометрия'
-}
 
 
 def convert_dataset(ds, skip_start_weeks=0, verbose=0) -> list[dict]:
@@ -36,8 +28,10 @@ def convert_dataset(ds, skip_start_weeks=0, verbose=0) -> list[dict]:
     :param verbose: признак вывода отладочной информации
     """
 
+    channels, _, _ = get_channels_settings()
+
     data = []
-    for channel_index, item in enumerate(ds):
+    for ch_index, item in enumerate(ds):
         # конвертируем колонку периода в дату начала недели
         start_date: pd.Timestamp = item['start'].to_timestamp(how='start').floor('d')
         # print(f'item start: {item["start"]}')
@@ -64,8 +58,8 @@ def convert_dataset(ds, skip_start_weeks=0, verbose=0) -> list[dict]:
             end_row += 52
 
         data.append(dict(
-            index=channel_index,
-            label=CHANNEL_NAMES[channel_index],
+            index=ch_index,
+            label=channels[ch_index],
             start_date=start_date,
             years=years
         ))
@@ -73,7 +67,7 @@ def convert_dataset(ds, skip_start_weeks=0, verbose=0) -> list[dict]:
         print('Данные по РГ:')
         for key, value in data[6].items():
             if key == 'years':
-                for year, target  in value.items():
+                for year, target in value.items():
                     print(f'{year} ({len(target)}): {target}')
             else:
                 print(f'{key}: {value}')
@@ -81,14 +75,15 @@ def convert_dataset(ds, skip_start_weeks=0, verbose=0) -> list[dict]:
     return data
 
 
-def show_time_series_by_year():
+def show_time_series_by_year(data_version):
 
     hp = Hyperparameters()
 
     dm = DataManager()
     dm.read_and_prepare(
         freq=hp.get('freq'),
-        prediction_len=hp.get('prediction_len')
+        prediction_len=hp.get('prediction_len'),
+        data_version=data_version
     )
     # формируем полную выборку
     ds = dm.from_generator(splits=2, split='test', end_shift=0)
@@ -112,13 +107,15 @@ def show_legend():
 
 
 def show_sample_example(batch_size):
+    _, _, n_channels = get_channels_settings()
     hp = Hyperparameters()
 
     # создаём менеджер датасета и готовим исходный DataFrame для формирования выборок
     dm = DataManager()
     dm.read_and_prepare(
         freq=hp.get('freq'),
-        prediction_len=hp.get('prediction_len')
+        prediction_len=hp.get('prediction_len'),
+        data_version='train'
     )
 
     # сгенерируем набор дефолтных гиперпараметров и посмотрим на их значения
@@ -151,7 +148,7 @@ def show_sample_example(batch_size):
         # единственный статический категориальный признак - ID серии:
         num_static_categorical_features=1,
         # количество каналов
-        cardinality=[len(CHANNEL_NAMES)],
+        cardinality=[n_channels],
         # размерность эмбеддингов
         embedding_dimension=[2],
         # параметры трансформера
@@ -206,6 +203,10 @@ def expand_pandas_output():
 
 
 if __name__ == '__main__':
-    # show_time_series_by_year()
+
+    # установим количество каналов данных
+    os.environ['ROENTGEN.N_CHANNELS'] = '10'
+
+    show_time_series_by_year(data_version='train')
     # show_doctors()
-    show_legend()
+    # show_legend()

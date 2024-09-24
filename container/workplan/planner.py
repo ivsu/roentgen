@@ -8,15 +8,52 @@ from common.logger import Logger
 
 logger = Logger(__name__)
 
-# PARAMS = ['n_search', 'n_epochs', 'warmup_epochs', 'decay_epochs', 'prediction_len',
-#           'n_bots', 'n_survived', 'n_random', 'end_shifts'],
-# PARAMS_TITLES = ['Популяций', 'Эпох обучения', 'Эпох прогрева', 'Эпох затухания LR', 'Глубина предикта',
-#                  'Ботов в популяции', 'Количество выживающих', 'Количество рандомных', 'Этапов обучения каждого бота']
-
 PARAMS = dict(n_search='Популяций', n_bots='Ботов в популяции',
               n_survived='Количество выживающих', n_random='Количество рандомных', prediction_len='Глубина предикта',
               n_epochs='Эпох обучения', warmup_epochs='Эпох прогрева', decay_epochs='Эпох затухания LR',
               end_shifts='Этапов обучения каждого бота')
+
+
+def single_run(namespace):
+
+    end_shifts = [-15, -10, -5, 0]
+    # end_shifts = [0]
+
+    # создаём инстанс гиперпараметров
+    hp = Hyperparameters()
+    # установим параметры для единичного обучения
+    hp.set('namespace', namespace)
+    hp.set('n_search', 1)
+    hp.set('n_bots', 1)
+    hp.set('n_survived', 0)
+    hp.set('n_random', 0)
+    hp.set('n_epochs', 22)
+    hp.set('warmup_epochs', 5)
+    hp.set('decay_epochs', 12)
+    hp.set('end_shifts', end_shifts)
+    # сгенерируем набор дефолтных гиперпараметров и посмотрим на их значения
+    values, _ = hp.generate(mode='default', hashes=[])
+    print(hp.repr(values, mode='short'))
+
+    # (!) plotly странно работает при первом вызове в колабе - выведем графические
+    # индикаторы для первого вызова
+    # if True or os.environ['RUN_ENV'] == 'COLAB':
+    #     indicators(hp, PARAMS)
+
+    # создаём менеджер данных и готовим исходный DataFrame для формирования выборок
+    datamanager = DataManager()
+    datamanager.read_and_prepare(
+        freq=hp.get('freq'),
+        prediction_len=hp.get('prediction_len'),
+        data_version='train'
+    )
+
+    # создаём Researcher и передаём ему датасеты и инстанс гиперпараметров
+    researcher = Researcher(datamanager, hp,
+                            mode='single',
+                            show_graphs=True, total_periods=len(end_shifts) + 1,
+                            train=True, save_bots=True)
+    researcher.run()
 
 
 def search_hyperparameters(mode='genetic', end_shifts=None):
@@ -38,7 +75,8 @@ def search_hyperparameters(mode='genetic', end_shifts=None):
     datamanager = DataManager()
     datamanager.read_and_prepare(
         freq=hp.get('freq'),
-        prediction_len=hp.get('prediction_len')
+        prediction_len=hp.get('prediction_len'),
+        data_version = 'train'
     )
 
     # создаём Researcher и передаём ему датасеты и инстанс гиперпараметров
@@ -49,13 +87,14 @@ def search_hyperparameters(mode='genetic', end_shifts=None):
     researcher.run()
 
 
-def learn_best_bots():
+def learn_best_bots(n_bots, namespace):
 
     # создаём инстанс гиперпараметров
     hp = Hyperparameters()
+    hp.set('namespace', namespace)
     # установим большее, чем при поиске количество эпох обучения, и возьмём 7 лучших ботов
     hp.set('n_epochs', 30)
-    hp.set('n_survived', 7)
+    hp.set('n_survived', n_bots)
     hp.set('warmup_epochs', 5)
     hp.set('decay_epochs', 20)
     hp.set('end_shifts', [0])
@@ -69,7 +108,8 @@ def learn_best_bots():
     datamanager = DataManager()
     datamanager.read_and_prepare(
         freq=hp.get('freq'),
-        prediction_len=hp.get('prediction_len')
+        prediction_len=hp.get('prediction_len'),
+        data_version='train'
     )
 
     # создаём Researcher и передаём ему датасеты и инстанс гиперпараметров
@@ -84,8 +124,15 @@ if __name__ == '__main__':
 
     logger.setup(level=logger.INFO, layout='debug')
 
-    search_hyperparameters(
-        # mode='test',
-        mode='genetic', end_shifts=[-5, 0]
-    )
-    # learn_best_bots()
+    # установим количество каналов данных
+    os.environ['ROENTGEN.N_CHANNELS'] = str(10)
+
+    # установим дату начала прогноза (датасет будет урезан до неё)
+    os.environ['ROENTGEN.FORECAST_START_DATE'] = '2024-04-29'
+
+    single_run(namespace='99')
+    # search_hyperparameters(
+    #     # mode='test',
+    #     mode='genetic', end_shifts=[-5, 0]
+    # )
+    # learn_best_bots(n_bots=7, namespace='02')

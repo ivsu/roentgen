@@ -56,6 +56,7 @@ class ModelBuilder:
 if __name__ == '__main__':
     os.chdir('..')
     logger.setup(level=logger.DEBUG, layout='debug')
+    os.environ['ROENTGEN.N_CHANNELS'] = '6'
 
     from workplan.hyperparameters import Hyperparameters
     from workplan.genetic import Bot

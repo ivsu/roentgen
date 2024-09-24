@@ -17,7 +17,7 @@ from workplan.modelbuilder import ModelBuilder
 from workplan.show import dashboard
 from workplan.dataloaders import create_train_dataloader, create_test_dataloader
 from workplan.schedulers import WarmupAndDecayScheduler
-from workplan.datamanager import CHANNEL_NAMES
+from workplan.datamanager import get_channels_settings
 from common.logger import Logger
 
 logger = Logger(__name__)
@@ -27,7 +27,10 @@ MASE_METRIC_PERIODICITY = 52
 # признак управления LR после каждого батча (иначе в рамках эпохи применяется один и тот же LR ко всем батчам)
 CHANGE_LR_ON_EVERY_BATCH = True
 # количество временных рядов
-N_CHANNELS = len(CHANNEL_NAMES)
+N_CHANNELS = None
+# коэффициент увеличения количества временных рядов в эпохе, чтобы охватить больше данных
+# (т.к. ряды сэмплируются в сеть рандомно)
+K_EXPAND = 1.4
 
 
 def train(model, config, dataloader, bot, stage_index, n_stages):
@@ -155,6 +158,7 @@ def inference(model, dataloader, config, device):
 
 
 def convert_data_for_metrics(dataset, forecasts):
+    """:deprecated:"""
     # сложим значения по КТ и МРТ с разным контрастным усилением, т.к. эти исследования выполняются
     # врачами с той же самой квалификацией
     forecasts_converted = np.concatenate([
@@ -186,17 +190,19 @@ def calc_metrics(dataset, forecasts, bot):
 
     # сложим значения по КТ и МРТ с разным контрастным усилением, т.к. эти исследования выполняются
     # врачами с той же самой квалификацией
-    forecasts_converted, target_converted = convert_data_for_metrics(dataset, forecasts)
+    # forecasts_converted, target_converted = convert_data_for_metrics(dataset, forecasts)
+    target = np.array([item['target'] for item in list(dataset)])
 
     # возмём медианное по батчам значение прогноза: (channels, n_batches, prediction_len) -> (channels, prediction_len)
-    forecast_median = np.median(forecasts_converted, axis=1)
+    # forecast_median = np.median(forecasts_converted, axis=1)
+    forecast_median = np.median(forecasts, axis=1)
 
     mase_metrics = []
     smape_metrics = []
     # по каждому временному ряду датасета
     # for item_id, ts in enumerate(dataset):
-    for item_id in range(target_converted.shape[0]):
-        ts = target_converted[item_id]
+    for item_id in range(target.shape[0]):
+        ts = target[item_id]
         training_data = ts[:-prediction_len]
         ground_truth = ts[-prediction_len:]
         # исключим NaN на входе (дни, когда не было данных) из расчёта метрик
@@ -292,11 +298,9 @@ class Bot:
 
     def calc_params(self, ts_len):
         """Рассчитывает количество батчей на эпоху так, чтобы все данные поместились в последовательности"""
-        # коэффициент увеличения количества временных рядов в эпохе, т.к. они сэмплируются в сеть рандомно
-        k_expand = 1.4
         min_sequence_len = self.values['prediction_len'] * (1 + self.values['context_ratio'])
         n_sequencies_total = N_CHANNELS * (ts_len - min_sequence_len)
-        self.values['num_batches_per_epoch'] = int(k_expand * n_sequencies_total / self.values['train_batch_size'])
+        self.values['num_batches_per_epoch'] = int(K_EXPAND * n_sequencies_total / self.values['train_batch_size'])
 
     def get(self, key):
         """Возвращает значение гиперпараметра бота по его ключу"""
@@ -474,6 +478,10 @@ class Researcher:
         # инициализуем генератор случайных чисел
         self.gen = np.random.default_rng()
 
+        # количество временных рядов
+        global N_CHANNELS
+        _, _, N_CHANNELS = get_channels_settings()
+
     def _setup(self):
         """
         Пробует считать ботов с диска и определяет режим старта генетического алгоритма.
@@ -558,6 +566,12 @@ class Researcher:
                 bot.set('n_epochs', 2)
             self.bots = self.population
 
+        elif self.mode == 'single':
+            # создаём единственного бота с параметрами по умолчанию
+            self.shift = 0
+            self.population = self.generate(1, mode='default')
+            self.bots = self.population
+
         # если мы дообучаем лучших ботов
         elif self.mode == 'best':
             # считываем ботов с диска
@@ -594,6 +608,7 @@ class Researcher:
     def run(self):
 
         from_shift, evolve, n_search = self._setup()
+        train_ds, test_ds = None, None
 
         # цикл смены популяций ботов
         for shift in range(from_shift, n_search):
@@ -713,6 +728,12 @@ class Researcher:
 
             # выводим рейтинг 10-ти лучших ботов на текущий цикл
             self.print_bots_rating(num=10)
+
+        # очистим кэш сохраннённых выборок, т.к. при следующем запуске они могут быть другими
+        if train_ds:
+            train_files = train_ds.cleanup_cache_files()
+            test_files = test_ds.cleanup_cache_files()
+            print(f'Кэш выборок очищен. Удалено файлов: {train_files} / {test_files}.')
 
     def generate(self, number, mode='random', start_index=0):
         """

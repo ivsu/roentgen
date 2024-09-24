@@ -5,7 +5,7 @@ import copy
 from gluonts.dataset.field_names import FieldName
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-from workplan.datamanager import CHANNEL_NAMES, COLLAPSED_CHANNEL_NAMES
+from workplan.datamanager import get_channels_settings
 
 
 def time_series_by_year(data: list[dict]):
@@ -64,11 +64,12 @@ def dashboard(metrics, dataset, forecasts, learning_rates, bot, total_periods, n
     metrics = copy.deepcopy(metrics)
     learning_rates = copy.deepcopy(learning_rates)
     forecasts = copy.deepcopy(forecasts)
+    channels, _, _ = get_channels_settings()
 
     fig = make_subplots(
         rows=1, cols=3,
         subplot_titles=('Функция ошибки / LR', 'MASE / sMAPE',
-                        # f'Прогноз/факт [{CHANNEL_NAMES[ts_index]}]')
+                        # f'Прогноз/факт [{channels[ts_index]}]')
                         f'Прогноз/факт [...]'),
         horizontal_spacing=0.08,
         specs=[[{'secondary_y': True}, {'secondary_y': False}, {'secondary_y': False}]]
@@ -102,7 +103,7 @@ def dashboard(metrics, dataset, forecasts, learning_rates, bot, total_periods, n
     # losses = np.asarray(metrics['losses'])  # [stages, epochs, batches]
     # loss_mean = losses.mean(axis=(0, 2))
     # loss_std = losses.mean(axis=2).std(axis=0)
-    loss_mean, loss_std, stage_losses = calc_loss(metrics['losses']) # [stages, epochs, batches]
+    loss_mean, loss_std, stage_losses = calc_loss(metrics['losses'])  # [stages, epochs, batches]
     epochs = np.arange(loss_mean.shape[0])
 
     mase = np.array(metrics['mase']).mean(axis=0)  # [stages, channels]
@@ -198,7 +199,7 @@ def dashboard(metrics, dataset, forecasts, learning_rates, bot, total_periods, n
     fig.add_trace(
         go.Scatter(
             x=mase, y=smape,
-            text=COLLAPSED_CHANNEL_NAMES, textposition="top center",
+            text=channels, textposition="top center",
             mode='markers+text',
             # marker_size=[40, 60, 80, 100]
             name="Метрики",
@@ -216,7 +217,7 @@ def dashboard(metrics, dataset, forecasts, learning_rates, bot, total_periods, n
         fact=dataset[i]["target"][-total_periods * prediction_len:],
         fact_1y_ago=dataset[i]["target"][-total_periods * prediction_len - 52:-52],
         fact_2y_ago=dataset[i]["target"][-total_periods * prediction_len - 104:-104],
-    ) for i, _ in enumerate(CHANNEL_NAMES)]
+    ) for i, _ in enumerate(channels)]
 
     # print(f'index:\n{index[-forecast_periods:]}')
     # print(f'plan:\n{planfact[0]["plan"]}')
@@ -265,18 +266,21 @@ def dashboard(metrics, dataset, forecasts, learning_rates, bot, total_periods, n
             x=index[-total_periods * prediction_len:],
             y=planfact[ts_index]['fact'],
             mode='lines+markers',
-            line=dict(color='lightsalmon'),
+            # line=dict(color='lightsalmon'),
+            line=dict(color='rgba(130, 90, 74, 0.3)'),  # комплиментарный тёмный lightsalmon: 255, 160, 122
             name="Факт"
         ),
         row=1, col=3
     )
+
     # истинное значение -52 недели назад
     fig.add_trace(
         go.Scatter(
             x=index[-total_periods * prediction_len:],
             y=planfact[ts_index]['fact_1y_ago'],
             mode='lines',
-            line=dict(width=0.7, color='rgba(250, 128, 114, 0.75)'),  # lightsalmon: rgba(255, 160, 122)
+            # line=dict(width=0.7, color='rgba(250, 128, 114, 0.75)'),  # lightsalmon: rgba(255, 160, 122)
+            line=dict(width=0.8, color='rgba(255, 160, 122, 1.0)'),  # lightsalmon: rgba(255, 160, 122)
             name="Факт -52 нед."
         ),
         row=1, col=3
@@ -290,7 +294,8 @@ def dashboard(metrics, dataset, forecasts, learning_rates, bot, total_periods, n
             x=x,
             y=y,
             mode='lines',
-            line=dict(width=0.5, color='rgba(250, 128, 114, 0.5)'),
+            # line=dict(width=0.5, color='rgba(250, 128, 114, 0.5)'),
+            line=dict(width=0.6, color='rgba(255, 160, 122, 0.8)'),
             name="Факт -104 нед."
         ),
         row=1, col=3
@@ -298,7 +303,7 @@ def dashboard(metrics, dataset, forecasts, learning_rates, bot, total_periods, n
     trace_index += 1
 
     filter_buttons = []
-    for i, channel in enumerate(CHANNEL_NAMES):
+    for i, channel in enumerate(channels):
         filter_buttons.append(dict(
             args=[dict(
                 y=[v for v in planfact[i].values()],
@@ -325,7 +330,7 @@ def dashboard(metrics, dataset, forecasts, learning_rates, bot, total_periods, n
                 # dict(layout={'annotations': [{'title': {'text': 'Stackoverflow'}}]}),
                 # layout.annotations[0].update(text="Stackoverflow")
                 # dict(subplot_titles=('Функция ошибки', 'MASE/sMAPE',
-                #                      f'Прогноз/факт [{CHANNEL_NAMES[i]}]')),
+                #                      f'Прогноз/факт [{CHANNELS[i]}]')),
                 [button_start_index + i for i in range(6)]
             ],
             label=channel,

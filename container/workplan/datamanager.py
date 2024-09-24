@@ -4,6 +4,8 @@ import pandas as pd
 from datetime import datetime, timedelta
 from datasets import Dataset
 from functools import lru_cache
+from datasets import disable_caching
+from datasets import config as datasets_config
 
 from common.logger import Logger
 from workplan.hyperparameters import Hyperparameters
@@ -15,13 +17,28 @@ else:
 
 logger = Logger(__name__)
 
-# текстовые метки каналов данных
-CHANNEL_NAMES = ['kt', 'kt_ce1', 'kt_ce2', 'mrt', 'mrt_ce1', 'mrt_ce2', 'rg', 'flg', 'mmg', 'dens']
-COLLAPSED_CHANNEL_NAMES = ['kt', 'mrt', 'rg', 'flg', 'mmg', 'dens']
-# словарь с именами и индексами каналов данных
-CHANNEL_INDEX = {name: ch for ch, name in enumerate(CHANNEL_NAMES)}
-
+# текстовые метки каналов данных для полного и просуммированного набора каналов
+ALL_CHANNELS = ['kt', 'kt_ce1', 'kt_ce2', 'mrt', 'mrt_ce1', 'mrt_ce2', 'rg', 'flg', 'mmg', 'dens']
+COLLAPSED_CHANNELS = ['kt', 'mrt', 'rg', 'flg', 'mmg', 'dens']
+CHANNEL_LEGEND = {
+    'kt': 'КТ', 'kt_ce1': 'КТ с контрастом, вариант 1', 'kt_ce2': 'КТ с контрастом, вариант 2',
+    'mrt': 'МРТ', 'mrt_ce1': 'МРТ с контрастом, вариант 1', 'mrt_ce2': 'МРТ с контрастом, вариант 2',
+    'rg': 'Рентгенография', 'flg': 'Флюорография',
+    'mmg': 'Маммография', 'dens': 'Денситометрия'
+}
+# частота данных (используется в методе конвертации в Period)
 FREQ = None
+
+
+def get_channels_settings():
+    try:
+        n_channels = int(os.environ['ROENTGEN.N_CHANNELS'])
+    except KeyError:
+        raise RuntimeError('Не задана переменная среды: ROENTGEN.N_CHANNELS')
+
+    assert n_channels in [6, 10]
+    channels = COLLAPSED_CHANNELS if n_channels == 6 else ALL_CHANNELS
+    return channels, {name: ch for ch, name in enumerate(channels)}, n_channels
 
 
 def generator(df, splits, split, prediction_len, end_shift):
@@ -38,7 +55,8 @@ def generator(df, splits, split, prediction_len, end_shift):
     assert splits in [2, 3]
     assert split in ['train', 'validation', 'test']
 
-    ts_len = len(df) + end_shift
+    ts_len = len(df) + end_shift  # end_shift <= 0
+    _, channel_index, _ = get_channels_settings()
 
     # определим конечный индекс данных, в зависимости от выборки
     # сплиты будут разной длины на prediction_len, но начало у них всех одинаковое
@@ -57,7 +75,7 @@ def generator(df, splits, split, prediction_len, end_shift):
     # будем конвертировать в Period на этапе трансформации
     start_date = df.index.min().to_timestamp()
 
-    for channel, index in CHANNEL_INDEX.items():
+    for channel, index in channel_index.items():
         yield {
             'start': start_date,
             'target': df[channel].iloc[:end_index].to_list(),
@@ -97,21 +115,24 @@ class DataManager:
         self.df = None
         # глубина предсказания - длина предсказываемой последовательности
         self.prediction_len = None
-        # частота данных
-        # self.freq = None
         # длина временного ряда
         self.ts_len = None
         # количество каналов данных
         self.n_channels = None
         # префикс схемы БД
         self.db_schema_prefix = 'roentgen.' if DB_VERSION == 'PG' else ''
+        # версия данных, считываемая из БД (для work_summary)
+        self.data_version = None
 
     def read(self):
+        _, _, n_channels = get_channels_settings()
+
         db = DB()
         query = f"""
             select
                 year, week, modality, contrast_enhancement as ce, amount
             from {self.db_schema_prefix}work_summary
+            where version = '{self.data_version}'
             order by year, week
             ;
         """
@@ -120,37 +141,65 @@ class DataManager:
             df: pd.DataFrame = get_all(cursor)
         db.close()
 
+        if len(df) == 0:
+            raise RuntimeError("Из БД получен пустой датафрейм.")
+
         def week_to_date_time(row):
             first_date = datetime(row['year'], 1, 1)
-            return first_date + timedelta(weeks=row['week'] - 1, days=7-first_date.weekday())
+            # если год начинается с понедельника, занулим смещение по дню недели
+            days_shift = 7 - first_date.weekday() if first_date.weekday() > 0 else 0
+            return first_date + timedelta(weeks=row['week'] - 1, days=days_shift)
+
+        # for year in range(2021, 2025):
+        #     week = 1
+        #     data = dict(year=year, week=week)
+        #     year_start = datetime(year, 1, 1)
+        #     print(f'week: {week:2d}, date: {week_to_date_time(data)}, year_start weekday: {year_start.weekday()}')
+        #     week = 52
+        #     data = dict(year=year, week=week)
+        #     print(f'week: {week:2d}, date: {week_to_date_time(data)}')
 
         def compose_channel(row):
             return row['modality'] \
                 if row['ce'] == 'none' \
                 else row['modality'] + '_' + row['ce']
 
-        # by_mod = df['modality'] == 'rg'
-        # by_year = df['year'] == 2024
-        # print(df[by_mod & by_year])
         df['datetime'] = df.apply(week_to_date_time, axis=1)
         df['channel'] = df.apply(compose_channel, axis=1)
 
         df = df.pivot(index=['datetime'], columns=['channel'], values=['amount'])
-        # print(df.columns)
+        # оставляем индекс только по модальностям (убираем amount)
         df.columns = df.columns.levels[1]
+
+        # объединим данные по контрастному усилению
+        if n_channels == 6:
+            df['kt'] = df[['kt', 'kt_ce1', 'kt_ce2']].sum(axis=1)
+            df['mrt'] = df[['mrt', 'mrt_ce1', 'mrt_ce2']].sum(axis=1)
+            df.drop(['kt_ce1', 'kt_ce2', 'mrt_ce1', 'mrt_ce2'], axis=1, inplace=True)
+
+        # если задана дата начала прогноза, урежем датафрейм до этой даты
+        if 'ROENTGEN.FORECAST_START_DATE' in os.environ:
+            forecast_start_date = os.environ['ROENTGEN.FORECAST_START_DATE']
+            print(df[df.index < datetime.fromisoformat(forecast_start_date)].index.max())
+            if forecast_start_date:
+                df = df[df.index < datetime.fromisoformat(forecast_start_date)]
+            print(df[df.index < datetime.fromisoformat(forecast_start_date)].index.max())
+
+        # print(f'columns: {df.columns}')
         self.df = df
         self.ts_len = len(df)
-        self.n_channels = len(df.columns)
+        self.n_channels = n_channels
 
         logger.info('Данные загружены.')
         # logger.info(f'self.df:\n{self.df.head()}')
 
-    def read_and_prepare(self, freq, prediction_len):
+    def read_and_prepare(self, freq, prediction_len, data_version):
         """ Подготовка источника данных - DataFrame """
-        # self.freq = freq
+        assert data_version in ['source', 'train'], "Неизвестная версия данных: " + data_version
         global FREQ
         FREQ = freq
         self.prediction_len = prediction_len
+        self.data_version = data_version
         # загружаем данные в датафрейм
         self.read()
         # переводим индекс в pd.Period
@@ -159,7 +208,11 @@ class DataManager:
 
     def from_generator(self, splits, split, end_shift):
         """ Возвращает датасет в зависимости от аргумента split"""
-        ds = Dataset.from_generator(generator, gen_kwargs=dict(
+        # TODO: не работает
+        datasets_config.IN_MEMORY_MAX_SIZE = 10000
+        disable_caching()
+
+        ds = Dataset.from_generator(generator, keep_in_memory=True, gen_kwargs=dict(
             df=self.df, splits=splits, split=split, prediction_len=self.prediction_len, end_shift=end_shift
         ))
         # используем функциональность датасета set_transform для конвертации
@@ -173,13 +226,17 @@ if __name__ == '__main__':
     os.chdir('..')
     logger.setup(level=logger.INFO, layout='debug')
 
+    # установим количество каналов данных
+    os.environ['ROENTGEN.N_CHANNELS'] = '6'
+
     hp = Hyperparameters()
 
     # создаём менеджер датасета и готовим исходный DataFrame для формирования выборок
     dm = DataManager()
     dm.read_and_prepare(
         freq=hp.get('freq'),
-        prediction_len=hp.get('prediction_len')
+        prediction_len=hp.get('prediction_len'),
+        data_version='source'  # source, train
     )
 
     # сгенерируем набор дефолтных гиперпараметров и посмотрим на их значения
@@ -192,4 +249,3 @@ if __name__ == '__main__':
 
     for sample in train_dataset:
         print(sample)
-
