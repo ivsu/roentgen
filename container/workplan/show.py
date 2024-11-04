@@ -35,7 +35,7 @@ def time_series_by_year(data: list[dict]):
             args=[dict(
                 y=targets,
                 # selector=dict(name='Прогноз'),
-            ),
+                ),
                 dict(title=f'Количество исследований по годам по модальности: {channel}'),
                 np.arange(len(targets))
             ],
@@ -60,11 +60,17 @@ def time_series_by_year(data: list[dict]):
     fig.show()
 
 
-def dashboard(metrics, dataset, forecasts, learning_rates, bot, total_periods, name):
+def dashboard(metrics, dataset, forecasts, learning_rates, bot, name):
     metrics = copy.deepcopy(metrics)
     learning_rates = copy.deepcopy(learning_rates)
     forecasts = copy.deepcopy(forecasts)
     channels, _, _ = get_channels_settings()
+
+    freq = bot.get('freq')
+    prediction_len = bot.get('prediction_len')
+    forecast_periods = forecasts.shape[2]
+    forecast_stages = forecast_periods // prediction_len
+    total_stages = forecast_stages + 1
 
     fig = make_subplots(
         rows=1, cols=3,
@@ -77,7 +83,7 @@ def dashboard(metrics, dataset, forecasts, learning_rates, bot, total_periods, n
 
     def calc_loss(losses: list):
         """Учитывая, что длина последовательности на каждой стадии разная,
-        рассчитаем среднее особым образом:
+        рассчитаем среднее и стандартное отклонение особым образом:
 
         :param losses: входной список размерности [stages, epochs, batches]
         :return: mean - среднее по всем stages и batches для каждой epochs;
@@ -109,11 +115,7 @@ def dashboard(metrics, dataset, forecasts, learning_rates, bot, total_periods, n
     mase = np.array(metrics['mase']).mean(axis=0)  # [stages, channels]
     smape = np.array(metrics['smape']).mean(axis=0)
 
-    freq = bot.get('freq')
-    prediction_len = bot.get('prediction_len')
-
     ts_index = 0
-    forecast_periods = forecasts.shape[2]
 
     index = pd.period_range(
         start=dataset[0][FieldName.START],
@@ -209,14 +211,18 @@ def dashboard(metrics, dataset, forecasts, learning_rates, bot, total_periods, n
     trace_index += 1
 
     # План / Факт
+    previous_fact_slice = slice(-total_stages * prediction_len, -forecast_stages * prediction_len + 1)
+    check_fact_slice = slice(-forecast_stages * prediction_len, None)
 
     planfact = [dict(
         std_plus=forecasts[i].mean(axis=0) + forecasts[i].std(axis=0),
         std_minus=forecasts[i].mean(axis=0) - forecasts[i].std(axis=0),
         plan=np.median(forecasts[i], axis=0),
-        fact=dataset[i]["target"][-total_periods * prediction_len:],
-        fact_1y_ago=dataset[i]["target"][-total_periods * prediction_len - 52:-52],
-        fact_2y_ago=dataset[i]["target"][-total_periods * prediction_len - 104:-104],
+        # fact=dataset[i]["target"][-total_stages * prediction_len:],
+        previous_fact=dataset[i]["target"][previous_fact_slice],
+        check_fact=dataset[i]["target"][check_fact_slice],
+        fact_1y_ago=dataset[i]["target"][-total_stages * prediction_len - 52:-52],
+        fact_2y_ago=dataset[i]["target"][-total_stages * prediction_len - 104:-104],
     ) for i, _ in enumerate(channels)]
 
     # print(f'index:\n{index[-forecast_periods:]}')
@@ -260,23 +266,37 @@ def dashboard(metrics, dataset, forecasts, learning_rates, bot, total_periods, n
         row=1, col=3
     )
     trace_index += 1
-    # истинное значение
+
+    # истинное значение до начала прогноза
     fig.add_trace(
         go.Scatter(
-            x=index[-total_periods * prediction_len:],
-            y=planfact[ts_index]['fact'],
+            x=index[previous_fact_slice],
+            y=planfact[ts_index]['previous_fact'],
             mode='lines+markers',
-            # line=dict(color='lightsalmon'),
-            line=dict(color='rgba(130, 90, 74, 0.3)'),  # комплиментарный тёмный lightsalmon: 255, 160, 122
-            name="Факт"
+            line=dict(color='rgba(255, 160, 122, 1.0)'),  # lightsalmon: 255, 160, 122
+            name="Предш. факт"
         ),
         row=1, col=3
     )
+    trace_index += 1
+    # истинное значение в сравнении с прогнозом
+    fig.add_trace(
+        go.Scatter(
+            x=index[check_fact_slice],
+            y=planfact[ts_index]['check_fact'],
+            mode='lines+markers',
+            # line=dict(color='lightsalmon'),
+            line=dict(color='rgba(130, 90, 74, 0.5)'),  # комплиментарный тёмный lightsalmon: 255, 160, 122
+            name="Провероч. факт"
+        ),
+        row=1, col=3
+    )
+    trace_index += 1
 
     # истинное значение -52 недели назад
     fig.add_trace(
         go.Scatter(
-            x=index[-total_periods * prediction_len:],
+            x=index[-total_stages * prediction_len:],
             y=planfact[ts_index]['fact_1y_ago'],
             mode='lines',
             # line=dict(width=0.7, color='rgba(250, 128, 114, 0.75)'),  # lightsalmon: rgba(255, 160, 122)
@@ -288,7 +308,7 @@ def dashboard(metrics, dataset, forecasts, learning_rates, bot, total_periods, n
     trace_index += 1
     # истинное значение -104 недели назад
     y = planfact[ts_index]['fact_2y_ago']
-    x = index[-total_periods * prediction_len:][-len(y):]
+    x = index[-total_stages * prediction_len:][-len(y):]
     fig.add_trace(
         go.Scatter(
             x=x,
@@ -331,7 +351,7 @@ def dashboard(metrics, dataset, forecasts, learning_rates, bot, total_periods, n
                 # layout.annotations[0].update(text="Stackoverflow")
                 # dict(subplot_titles=('Функция ошибки', 'MASE/sMAPE',
                 #                      f'Прогноз/факт [{CHANNELS[i]}]')),
-                [button_start_index + i for i in range(6)]
+                [button_start_index + i for i in range(trace_index - button_start_index)]
             ],
             label=channel,
             method='update'

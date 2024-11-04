@@ -9,6 +9,7 @@ from datasets import config as datasets_config
 
 from common.logger import Logger
 from workplan.hyperparameters import Hyperparameters
+from workplan.test_dataset import generate_debug_df
 from settings import DB_VERSION
 if DB_VERSION == 'PG':
     from common.db import DB, get_all
@@ -52,7 +53,6 @@ def generator(df, splits, split, prediction_len, end_shift):
     :param end_shift: сдвиг на количество шагов (с конца) при обучении бота на временном ряде разной длины
 
     """
-    assert splits in [2, 3]
     assert split in ['train', 'validation', 'test']
 
     ts_len = len(df) + end_shift  # end_shift <= 0
@@ -177,13 +177,11 @@ class DataManager:
             df['mrt'] = df[['mrt', 'mrt_ce1', 'mrt_ce2']].sum(axis=1)
             df.drop(['kt_ce1', 'kt_ce2', 'mrt_ce1', 'mrt_ce2'], axis=1, inplace=True)
 
-        # если задана дата начала прогноза, урежем датафрейм до этой даты
-        if 'ROENTGEN.FORECAST_START_DATE' in os.environ:
-            forecast_start_date = os.environ['ROENTGEN.FORECAST_START_DATE']
-            print(df[df.index < datetime.fromisoformat(forecast_start_date)].index.max())
-            if forecast_start_date:
-                df = df[df.index < datetime.fromisoformat(forecast_start_date)]
-            print(df[df.index < datetime.fromisoformat(forecast_start_date)].index.max())
+        # если задана дата начала прогноза, урежем датафрейм с этой даты
+        assert 'ROENTGEN.FORECAST_START_DATE' in os.environ, 'Дата начала прогноза не найдена в переменных среды.'
+        forecast_start_date = os.environ['ROENTGEN.FORECAST_START_DATE']
+        df = df[df.index < datetime.fromisoformat(forecast_start_date)]
+        print(f'Конец датафрейма: {df.index.max()}')
 
         # print(f'columns: {df.columns}')
         self.df = df
@@ -195,16 +193,28 @@ class DataManager:
 
     def read_and_prepare(self, freq, prediction_len, data_version):
         """ Подготовка источника данных - DataFrame """
-        assert data_version in ['source', 'train'], "Неизвестная версия данных: " + data_version
+        assert data_version in ['source', 'train', 'debug'], "Неизвестная версия данных: " + data_version
         global FREQ
         FREQ = freq
         self.prediction_len = prediction_len
         self.data_version = data_version
         # загружаем данные в датафрейм
-        self.read()
-        # переводим индекс в pd.Period
-        self.df.index = self.df.index.to_period(freq)
+        if data_version == 'debug':
+            self.generate_debug_data()
+        else:
+            self.read()
+            # переводим индекс в pd.Period
+            self.df.index = self.df.index.to_period(freq)
         # print(f'self.df:\n{self.df}')
+
+    def generate_debug_data(self):
+        channels, _, n_channels = get_channels_settings()
+        dots_per_period = 13
+        self.df = generate_debug_df(channels, dots_per_period)
+        self.ts_len = len(self.df)
+        self.n_channels = n_channels
+
+        logger.info('Загружен отладочный датасет.')
 
     def from_generator(self, splits, split, end_shift):
         """ Возвращает датасет в зависимости от аргумента split"""
@@ -229,6 +239,8 @@ if __name__ == '__main__':
     # установим количество каналов данных
     os.environ['ROENTGEN.N_CHANNELS'] = '6'
 
+    os.environ['ROENTGEN.FORECAST_START_DATE'] = '2024-04-29'
+
     hp = Hyperparameters()
 
     # создаём менеджер датасета и готовим исходный DataFrame для формирования выборок
@@ -236,7 +248,7 @@ if __name__ == '__main__':
     dm.read_and_prepare(
         freq=hp.get('freq'),
         prediction_len=hp.get('prediction_len'),
-        data_version='source'  # source, train
+        data_version='debug'  # source, train, debug
     )
 
     # сгенерируем набор дефолтных гиперпараметров и посмотрим на их значения
@@ -244,8 +256,8 @@ if __name__ == '__main__':
     # print(test_hp.repr(values))
 
     # формируем выборки
-    train_dataset = dm.from_generator(splits=2, split='train', end_shift=0)
-    test_dataset = dm.from_generator(splits=2, split='test', end_shift=0)
+    # dataset = dm.from_generator(splits=2, split='train', end_shift=0)
+    dataset = dm.from_generator(splits=2, split='test', end_shift=0)
 
-    for sample in train_dataset:
+    for sample in dataset:
         print(sample)

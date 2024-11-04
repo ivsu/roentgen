@@ -79,6 +79,9 @@ def show_time_series_by_year(data_version):
 
     hp = Hyperparameters()
 
+    if data_version == 'debug':
+        hp.set('prediction_len', 13)
+
     dm = DataManager()
     dm.read_and_prepare(
         freq=hp.get('freq'),
@@ -207,6 +210,6 @@ if __name__ == '__main__':
     # установим количество каналов данных
     os.environ['ROENTGEN.N_CHANNELS'] = '10'
 
-    show_time_series_by_year(data_version='train')
+    show_time_series_by_year(data_version='train')  # source, train, debug
     # show_doctors()
     # show_legend()

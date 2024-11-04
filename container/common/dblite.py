@@ -73,6 +73,43 @@ class DB:
             self.connection = None
         logger.debug('Соединение закрыто.')
 
+    def prepare_values(self):
+        pass
+
+    def upsert(self, df, tablename, unique):
+
+        columns_list = df.columns.to_list()
+        columns = ', '.join(columns_list)
+        unique = ', '.join(unique)
+        fields = ',\n'.join([f'\t{f} = excluded.{f}' for f in columns_list])
+        values = '\n\t(' + '),\n\t('.join([', '.join([f'{v}' for v in row.values]) for _, row in df.iterrows()]) + ")"
+
+        q = (
+            f'INSERT INTO {tablename} ({columns})\n'
+            f'VALUES {values}\n'
+            f'ON CONFLICT ({unique})\n'
+            'DO UPDATE SET\n'
+            f'{fields};'
+        )
+        with self.get_cursor() as curr:
+            curr.execute(q)
+            self.connection.commit()
+
+    def delete(self, tablename, where_condition):
+
+        q = (
+            f'DELETE FROM {tablename}\n'
+            f'WHERE\n'
+            f'{where_condition};'
+        )
+        with self.get_cursor() as curr:
+            curr.execute(q)
+            self.connection.commit()
+
+    def convert_columns(self, df, columns: list):
+        for col in columns:
+            df[col] = df[col].apply(lambda x: "'" + str(x) + "'")
+
 
 if __name__ == '__main__':
     os.chdir('..')
@@ -83,6 +120,12 @@ if __name__ == '__main__':
     with db.get_cursor() as cursor:
         cursor.execute("select 'dblite ready' as message;")
         result = get_all(cursor)
+
+    tablename = 'test_table'
+    unique = ['f1', 'f2']
+    df = pd.DataFrame({'f1': [10, 11, 12], 'f2': [100, 110, 120], 'f3': [200, 202, 209]})
+    db.upsert(df, tablename, unique)
+
     db.close()
     print(result)
 

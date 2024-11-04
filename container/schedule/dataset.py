@@ -6,16 +6,34 @@ import hashlib
 import random
 from datetime import time, datetime, timedelta
 
-from common.db import DB, get_all
-from common.dblite import DB as SQLite
 from common.timeutils import time_to_interval, get_time_chunck
 from schedule.dataloader import DataLoader, get_month_layout, \
     DOCTOR_COLUMNS, DOCTOR_DAY_PLAN_COLUMNS, MODALITIES, MODALITIES_MAP, SCHEDULE_TYPES
-from settings import LOCAL_FOLDER
+from settings import LOCAL_FOLDER, DB_VERSION
+if DB_VERSION == 'PG':
+    from common.db import DB, get_all
+else:
+    from common.dblite import DB as SQLite, get_all
 
 DATALOADER = None
 DB_SCHEMA = None
+DB_SCHEMA_PLACEHOLDER = None
 XLS_FILEPATH = '/Users/ivan/Documents/CIFROPRO/Проекты/Нейронки/Расписание рентген-центра/dataset/'
+
+
+def get_db():
+    """
+    Возвращает инстанс для взаимодействия с БД.
+    Не для всех методов здесь настроено взаимодействие с SQLite.
+    :return: инстанс DB (PostgreSQL, SQLite)
+    """
+    global DB_SCHEMA_PLACEHOLDER
+    if DB_VERSION == 'PG':
+        assert DB_SCHEMA is not None, "Не задана схема для базы PostgreSQL"
+        DB_SCHEMA_PLACEHOLDER = DB_SCHEMA + '.'
+        return DB(DB_SCHEMA)
+    DB_SCHEMA_PLACEHOLDER = ''
+    return SQLite()
 
 
 def get_uuid_from_columns(df_row, *args):
@@ -56,7 +74,7 @@ def load_summary(tablename, filename, sheetname, version=None):
     unique = ['year', 'week', 'modality', 'contrast_enhancement']
     df['uid'] = df.apply(get_uuid_from_columns, args=tuple(unique), axis=1)
 
-    db = DB(DB_SCHEMA)
+    db = get_db()
     db.upsert(df, tablename, unique)
     db.close()
 
@@ -133,7 +151,7 @@ def load_doctor(tablename, filename, sheetname):
     print(df.tail())
     print(df.iloc[0])
     unique = ['name']
-    db = DB(DB_SCHEMA)
+    db = get_db()
     db.upsert(df, tablename, unique)
     db.close()
     print('Сохранено записей:', len(df))
@@ -165,6 +183,14 @@ def generate_doctor_month_schedule(schedule_template, schedule_type, time_rate, 
 
 
 def generate_schedule(doctors, month_layout):
+    """
+    Генерирует график доступности врачей (рабочие дни, выходные, дни отсутствия)
+    на месяц на основе шаблона.
+
+    :param doctors: датафрейм с данными о врачах
+    :param month_layout: месячный шаблон, полученный методом get_month_layout
+    :return: датафрейм с данными о доступности врачей
+    """
 
     columns = ['uid', 'doctor', 'day_start', 'availability', 'time_volume']
 
@@ -215,26 +241,39 @@ def generate_schedule(doctors, month_layout):
     return pd.DataFrame(time_table, columns=columns), doctor_data
 
 
-def load_doctor_availability(tablename, month_start, version):
-    db = DB(DB_SCHEMA)
+def load_doctor_availability(tablename, month_start, version, msg='Сохранено записей'):
+    db = get_db()
 
     q = (f"SELECT id, {', '.join(DOCTOR_COLUMNS)}"
-         f" FROM {DB_SCHEMA}.doctor"
-         f" WHERE is_active;"
+         f" FROM {DB_SCHEMA_PLACEHOLDER}doctor"
+         f" WHERE is_active = 't';"
          )
     with db.get_cursor() as cursor:
         cursor.execute(q)
         doctors: pd.DataFrame = get_all(cursor)
+
+    def convert_to_time(df, columns):
+        for col in columns:
+            df[col] = pd.to_datetime(df[col]).dt.time
+
+    if DB_VERSION == 'SQLite':
+        convert_to_time(doctors, ['day_start_time', 'day_end_time', 'rest_time'])
+    # doctors['day_start_time'] = pd.to_datetime(doctors['day_start_time']).dt.time
+    # doctors['day_end_time'] = pd.to_datetime(doctors['day_end_time']).dt.time
+    # doctors['rest_time'] = pd.to_datetime(doctors['rest_time']).dt.time
 
     month_layout = get_month_layout(month_start)
     # выход: [uid, doctor_uid, day_start, availability, time_volume]
     df, _ = generate_schedule(doctors, month_layout)
     df['version'] = version
 
+    if DB_VERSION == 'SQLite':
+        db.convert_columns(df, ['uid', 'version', 'doctor', 'day_start', 'time_volume'])
+
     unique = ['version', 'doctor', 'day_start']
     try:
         db.upsert(df, tablename, unique)
-        print('Сохранено записей:', len(df))
+        print(f'{msg}: {len(df)}')
     except Exception as e:
         print(repr(e))
         df.to_excel(XLS_FILEPATH + 'doctor_availability_df.xlsx')
@@ -242,11 +281,11 @@ def load_doctor_availability(tablename, month_start, version):
 
 
 def load_doctor_day_plan(tablename, month_start, version):
-    db = DB(DB_SCHEMA)
+    db = get_db()
 
     q = (f"SELECT da.uid, da.time_volume, d.main_modality, d.modalities"
-         f" FROM {DB_SCHEMA}.doctor_availability as da"
-         f" LEFT JOIN {DB_SCHEMA}.doctor as d"
+         f" FROM {DB_SCHEMA_PLACEHOLDER}doctor_availability as da"
+         f" LEFT JOIN {DB_SCHEMA_PLACEHOLDER}doctor as d"
          f"   ON d.uid = da.doctor"
          f" WHERE da.version = '{version}' and da.availability = 1"
          f"     AND date_trunc('month', da.day_start) = '{month_start.strftime('%Y-%m-%d')}'"
@@ -303,7 +342,7 @@ def create_day_plan(tablename, month_start, version):
         .drop(columns=['week', 'weekday', 'month', 'day_number', 'day_index'])
     print(day_plan_df.head())
 
-    db = DB(DB_SCHEMA)
+    db = get_db()
     unique = ['day_start', 'modality', 'contrast_enhancement']
     db.upsert(day_plan_df, tablename, unique)
     db.close()
@@ -326,7 +365,7 @@ def generate_test_work_plan_summary():
     df['uid'] = None
     df['uid'] = df['uid'].apply(lambda uid: uuid.uuid4())
 
-    db = DB(DB_SCHEMA)
+    db = get_db()
     unique = ['version', 'year', 'week', 'modality', 'contrast_enhancement']
     db.upsert(df, 'work_plan_summary', unique)
     db.close()
@@ -340,7 +379,7 @@ def generate_test_time_norm():
     ]
     df = pd.DataFrame(time_norm, columns=['modality', 'contrast_enhancement', 'min_value', 'max_value'])
     # print(df)
-    db = DB(DB_SCHEMA)
+    db = get_db()
     unique = ['modality', 'contrast_enhancement']
     db.upsert(df, 'time_norm', unique)
     db.close()
@@ -408,10 +447,8 @@ if __name__ == '__main__':
     os.chdir('..')
 
     mode = 'test'
-    if mode == 'test':
-        DB_SCHEMA = 'test'
-    else:
-        DB_SCHEMA = 'roentgen'
+    if DB_VERSION == 'PG':
+        DB_SCHEMA = 'test' if mode == 'test' else 'roentgen'
 
     DATALOADER = DataLoader(DB_SCHEMA)
     start_of_month = datetime(2024, 1, 1)

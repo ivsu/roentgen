@@ -2,14 +2,16 @@ import sys
 import os
 
 from common.showdata import show_time_series_by_year, show_doctors, show_legend, show_sample_example
-from workplan.planner import search_hyperparameters, learn_best_bots
+from workplan.planner import search_hyperparameters, learn_best_bots, learn_default
 from schedule.scheduler import calculate_schedule
 
-VALID_ARGS = [
+VALID_MODES = [
     '--show-legend',
     '--show-doctors',
     '--show-time-series-by-year',
     '--show-sample-example',
+    '--train-model',
+    '--calculate-schedule',
     '--search-hyperparameters',
     '--learn-best-bots',
     '--calculate-schedule',
@@ -17,21 +19,24 @@ VALID_ARGS = [
 ]
 
 
+def check_environ(variable):
+    if variable not in os.environ:
+        raise ValueError('Не задана переменная:', )
+
+
 def print_help():
-    print('Список возможных аргументов:')
-    print("\n".join(VALID_ARGS))
+    print('Список возможных режимов:')
+    print("\n".join(VALID_MODES))
 
 
 if __name__ == '__main__':
-
-
 
     args = sys.argv
     if len(args) <= 1:
         raise RuntimeError('Необходимо указать аргументы.')
 
     mode = args[1]
-    if mode not in VALID_ARGS:
+    if mode not in VALID_MODES:
         print_help()
 
     options_len = len(args) - 2
@@ -41,6 +46,14 @@ if __name__ == '__main__':
             if '--n_channels' == parts[0]:
                 assert len(parts) == 2, "Неверно задан параметр для опции --n_channels."
                 os.environ['ROENTGEN.N_CHANNELS'] = str(parts[1])
+            elif '--forecast_start_date' == parts[0]:
+                assert len(parts) == 2, "Неверно задан параметр для опции --forecast_start_date."
+                # установим дату начала прогноза (датасет будет урезан до неё)
+                os.environ['ROENTGEN.FORECAST_START_DATE'] = str(parts[1])
+            elif '--planning_start_date' == parts[0]:
+                assert len(parts) == 2, "Неверно задан параметр для опции --schedule_start_date."
+                # установим дату начала прогноза (датасет будет урезан до неё)
+                os.environ['ROENTGEN.SCHEDULE_START_DATE'] = str(parts[1])
 
     if mode == '--show-legend':
         show_legend()
@@ -50,28 +63,23 @@ if __name__ == '__main__':
         show_time_series_by_year(data_version='train')
     elif mode == '--show-sample-example':
         show_sample_example(batch_size=8)
+    elif mode == '--train-model':
+        check_environ('ROENTGEN.N_CHANNELS')
+        check_environ('ROENTGEN.FORECAST_START_DATE')
+        # обучим модель с параметрами по умолчанию, выполним прогноз работ от даты начала прогноза
+        # и запишем рассчитанный план работ в БД
+        learn_default(namespace='99', data_version='train', do_forecast=True)  # source, train, debug
+    elif mode == '--calculate-schedule':
+        check_environ('ROENTGEN.SCHEDULE_START_DATE')
+        calculate_schedule(
+            plan_version='forecast',
+            n_generations=30,
+            population_size = 100,
+            n_survived = 50
+        )  # validation, forecast
     elif mode == '--search-hyperparameters':
         search_hyperparameters()
     elif mode == '--learn-best-bots':
         learn_best_bots()
     elif mode == '--test':
         print(f'test, args: {args}')
-    elif mode == '--calculate-schedule':
-        raise NotImplementedError()
-        # calculate_schedule(datetime(2024, 1, 1))
-#
-"""
-    Алгоритм прогноза и расчёта графика:
-    + сохраняем единичного бота на диск (также будет работать и при подборе гиперпараметров)
-    - считываем и обучаем одного лучшего бота с параметром save_forecast=True
-      TODO: разобраться, как сформировать датасет - типа, нулями его заполнить для future_values
-    - формируем номера недель для прогноза, удаляем имеющиеся за этот период данные из БД и пишем прогнозные
-      с версией forecast
-    - в Scheduler:
-      - настроить понятный вывод результатов поиска;
-      - прикрутить вывод графика в plotly
-      - настрить сохранение в SQLite
-      - считываем и выводим в виде датафрейма
-      - сделать запуск
-    - запускаем scheduler
-"""

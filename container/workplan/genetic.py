@@ -1,8 +1,13 @@
+import os
+
+import uuid
+
 import json
 import glob
 import gc
-from datetime import datetime
+from datetime import datetime, timedelta
 import numpy as np
+import pandas as pd
 import copy
 
 # для обучения модели
@@ -19,6 +24,12 @@ from workplan.dataloaders import create_train_dataloader, create_test_dataloader
 from workplan.schedulers import WarmupAndDecayScheduler
 from workplan.datamanager import get_channels_settings
 from common.logger import Logger
+from common.showdata import expand_pandas_output
+from settings import DB_VERSION
+if DB_VERSION == 'PG':
+    from common.db import DB, get_all
+else:
+    from common.dblite import DB, get_all
 
 logger = Logger(__name__)
 
@@ -28,16 +39,17 @@ MASE_METRIC_PERIODICITY = 52
 CHANGE_LR_ON_EVERY_BATCH = True
 # количество временных рядов
 N_CHANNELS = None
-# коэффициент увеличения количества временных рядов в эпохе, чтобы охватить больше данных
-# (т.к. ряды сэмплируются в сеть рандомно)
-K_EXPAND = 1.4
 
 
-def train(model, config, dataloader, bot, stage_index, n_stages):
+def train_model(model, config, dataloader, bot, stage_index, n_stages):
     epochs = bot.get('n_epochs')
     warmup_epochs = bot.get('warmup_epochs')
     decay_epochs = bot.get('decay_epochs')
     steps = 0
+    # на первой стадии будем обучать трансформер с прогревом
+    final_lr = bot.get('final_lr')
+    initial_lr = bot.get('initial_lr') if stage_index == 0 else final_lr
+    target_lr = bot.get('target_lr') if stage_index == 0 else final_lr
 
     # определим количество батчей
     num_batches = len(list(dataloader))
@@ -51,16 +63,14 @@ def train(model, config, dataloader, bot, stage_index, n_stages):
     # и передаём ему параметры модели
     optimizer = AdamW(model.parameters(), betas=(0.9, 0.95), weight_decay=1e-1)
 
-    # будем обучать трансформер с прогревом
-    target_lr = 1e-3 if stage_index == 0 else 1e-4
     scheduler = WarmupAndDecayScheduler(
         optimizer,
         warmup_steps=num_batches * warmup_epochs,
         decay_steps=num_batches * decay_epochs,
         decay_rate=0.3,
+        initial_lr=initial_lr,
         target_lr=target_lr,
-        initial_lr=5e-5,
-        final_lr=1e-5,
+        final_lr=final_lr,
         steps_per_epoch=num_batches,
         change_on_every_batch=CHANGE_LR_ON_EVERY_BATCH,
         device=device
@@ -129,7 +139,7 @@ def inference(model, dataloader, config, device):
     Реализует инференс модели с помощью метода generate.
     Возвращает вероятностый прогнозный вектор формы:
     (количество_временных_рядов, config.num_parallel_samples [100], глубина_предикта),
-    Например: (4, 100, 30)
+    Например: (6, 100, 5)
     """
     model.eval()
 
@@ -175,6 +185,46 @@ def convert_data_for_metrics(dataset, forecasts):
     return forecasts_converted, target_converted
 
 
+import numpy as np
+
+
+def calculate_mase(actual, forecast, prediction_len, seasonal_period):
+    """
+    Рассчитывает MASE для сезонного временного ряда.
+    Сделана для проверки расчёта метрики.
+
+    :param actual: numpy массив с фактическими значениями
+    :param forecast: numpy массив с предсказанными значениями
+    :param seasonal_period: длина сезонного компонента
+
+    :return: значение MASE
+    """
+    ground_truth = actual[-prediction_len:]
+    # исключим NaN на входе (дни, когда не было данных) из расчёта метрик
+    future_mask = np.isnan(ground_truth)
+
+    # Вычисление абсолютной ошибки
+    absolute_error = np.abs(ground_truth[~future_mask] - forecast[~future_mask])
+
+    # Вычисляем MAE для базовой модели
+    # Сначала вычисляем MAE по базовой модели (например, случайные блуждания)
+    # Используем значение сезонного среднего для шкалирования
+    seasonal_data = actual[-seasonal_period - prediction_len:-seasonal_period]
+    mae_naive = np.nanmean(np.abs(ground_truth[~future_mask] - seasonal_data[~future_mask]))
+
+    # Общая MAE
+    mae_forecast = np.mean(absolute_error)
+
+    # Убедимся, что mae_naive не равно нулю для избегания деления на ноль
+    if mae_naive == 0:
+        raise ValueError("MAE для базовой модели не должен быть равен нулю.")
+
+    # Считаем MASE
+    mase = mae_forecast / mae_naive
+
+    return mase
+
+
 def calc_metrics(dataset, forecasts, bot):
     """
     Возвращет метрики MASE/sMAPE.
@@ -184,23 +234,17 @@ def calc_metrics(dataset, forecasts, bot):
     :param bot: тестовый датасет, содержащий все последовательности целиком
     """
     prediction_len = bot.get('prediction_len')
-    # freq = bot.get('freq')
     mase_metric = load("evaluate-metric/mase")
     smape_metric = load("evaluate-metric/smape")
 
-    # сложим значения по КТ и МРТ с разным контрастным усилением, т.к. эти исследования выполняются
-    # врачами с той же самой квалификацией
-    # forecasts_converted, target_converted = convert_data_for_metrics(dataset, forecasts)
     target = np.array([item['target'] for item in list(dataset)])
 
-    # возмём медианное по батчам значение прогноза: (channels, n_batches, prediction_len) -> (channels, prediction_len)
-    # forecast_median = np.median(forecasts_converted, axis=1)
+    # возьмём медианное по батчам значение прогноза: (channels, n_batches, prediction_len) -> (channels, prediction_len)
     forecast_median = np.median(forecasts, axis=1)
 
     mase_metrics = []
     smape_metrics = []
     # по каждому временному ряду датасета
-    # for item_id, ts in enumerate(dataset):
     for item_id in range(target.shape[0]):
         ts = target[item_id]
         training_data = ts[:-prediction_len]
@@ -208,6 +252,12 @@ def calc_metrics(dataset, forecasts, bot):
         # исключим NaN на входе (дни, когда не было данных) из расчёта метрик
         past_mask = np.isnan(training_data)
         future_mask = np.isnan(ground_truth)
+
+        # if item_id == 0:
+        #     print(f'forecast_median:\n{forecast_median[item_id]}')
+        #     print(f'ground_truth:\n{ground_truth}')
+        #     print(f'training_data (-52):\n{training_data[-52:-52+prediction_len]}')
+        #     print(f'training_data (-104):\n{training_data[-104:-104+prediction_len]}')
 
         mase = mase_metric.compute(
             predictions=forecast_median[item_id][~future_mask],
@@ -217,6 +267,11 @@ def calc_metrics(dataset, forecasts, bot):
             #  - учесть тренд в расчёте метрики; странно, что скалирование MASE по всей поляне вычисляется.
             periodicity=MASE_METRIC_PERIODICITY)
         mase_metrics.append(mase["mase"])
+        # print(f'mase: {mase["mase"]}')
+
+        # mase = calculate_mase(ts, forecast_median[item_id], prediction_len, MASE_METRIC_PERIODICITY)
+        # mase_metrics.append(mase)
+        # print(f'mase: {mase}')
 
         smape = smape_metric.compute(
             predictions=forecast_median[item_id][~future_mask],
@@ -228,6 +283,52 @@ def calc_metrics(dataset, forecasts, bot):
     logger.debug(f"sMAPE (средняя): {np.mean(smape_metrics)}")
 
     return mase_metrics, smape_metrics
+
+
+def save_forecast(forecast, forecast_start_date):
+    """
+    Сохраняет данные прогноза в БД.
+
+    :param forecast: данные прогноза (n_channels, n_batches, periods)
+    """
+    assert forecast.shape[0] == 6, "Метод реализован для сохранения только сгруппированных по модальностям данных."
+    channels, _, _ = get_channels_settings()
+    # усредняем по батчам
+    forecast = forecast.mean(axis=1)
+    # формируем массив с колонкой индекса модальности и колонкой прогнозных данных
+    ch_index = np.arange(forecast.shape[0], dtype=int).repeat(forecast.shape[1])
+    forecast = np.vstack([ch_index, forecast.reshape((-1,)).round(0).astype('int')]).T
+    n_weeks = int(np.unique(forecast[:, 0], return_counts=True)[1][0])
+
+    df = pd.DataFrame(forecast, columns=['ch_index', 'amount'], dtype=int)
+    df.reset_index(inplace=True, drop=True)
+    df['contrast_enhancement'] = "'none'"
+    df['version'] = "'forecast'"
+    df['modality'] = df['ch_index'].apply(lambda i: f"'{channels[i]}'")
+
+    df['year'] = [(forecast_start_date + timedelta(weeks=i % n_weeks)).year for i in range(len(df))]
+    df['week'] = [(forecast_start_date + timedelta(weeks=i % n_weeks)).isocalendar()[1] for i in range(len(df))]
+
+    df['uid'] = df.apply(lambda _: f"'{uuid.uuid4()}'", axis=1)
+    df.drop(['ch_index'], inplace=True, axis=1)
+
+    now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    df['created_at'] = f"'{now}'"
+    df['updated_at'] = f"'{now}'"
+
+    # expand_pandas_output()
+    # print(df)
+    cond = df[['year', 'week']].drop_duplicates()
+    where = "version = 'forecast' and (\n\t" + " or\n\t".join(
+        [f'(year = {row["year"]} and week = {row["week"]})' for _, row in cond.iterrows()]
+    ) + "\n\t)"
+    unique = ['version', 'year', 'week', 'modality', 'contrast_enhancement']
+    db = DB()
+    # удаляем имеющиеся данные и вставляем новые
+    db.delete('work_plan_summary', where)
+    db.upsert(df, 'work_plan_summary', unique)
+    db.close()
+
 
 
 class Bot:
@@ -300,7 +401,9 @@ class Bot:
         """Рассчитывает количество батчей на эпоху так, чтобы все данные поместились в последовательности"""
         min_sequence_len = self.values['prediction_len'] * (1 + self.values['context_ratio'])
         n_sequencies_total = N_CHANNELS * (ts_len - min_sequence_len)
-        self.values['num_batches_per_epoch'] = int(K_EXPAND * n_sequencies_total / self.values['train_batch_size'])
+        self.values['num_batches_per_epoch'] = int(
+            self.values['k_expand'] * n_sequencies_total / self.values['train_batch_size']
+        )
 
     def get(self, key):
         """Возвращает значение гиперпараметра бота по его ключу"""
@@ -322,8 +425,9 @@ class Bot:
         self.train_time = train_time
 
     def get_lags_sequence(self):
-            index = self.get('lags_sequence_index')
-            return self.lags_sequence_set[index]
+        index = self.get('lags_sequence_index')
+        # return [i + 1 for i in range(self.get('prediction_len'))] + self.lags_sequence_set[index]
+        return self.lags_sequence_set[index]
 
     def get_time_features(self):
         index = self.get('time_features_index')
@@ -448,13 +552,11 @@ class Researcher:
     def __init__(self, datamanager, hp,
                  mode='genetic',
                  show_graphs=False,
-                 total_periods=2,
                  train=True, save_bots=True
                  ):
         self.datamanager = datamanager
         self.hp = hp
         self.show_graphs = show_graphs
-        self.total_periods = total_periods
         self.mode = mode
         self.train = train
         self.save = save_bots
@@ -605,10 +707,13 @@ class Researcher:
 
         return from_shift, evolve, n_search
 
-    def run(self):
+    def run(self, do_forecast=False):
 
         from_shift, evolve, n_search = self._setup()
         train_ds, test_ds = None, None
+        forecast, config, time_features, freq = None, None, None, None
+        model, device = None, None
+        learning_rates = None
 
         # цикл смены популяций ботов
         for shift in range(from_shift, n_search):
@@ -640,6 +745,7 @@ class Researcher:
 
                 # получаем модель
                 time_features = bot.get_time_features()
+                freq = bot.get('freq')
                 mb = ModelBuilder(bot, n_channels=N_CHANNELS,
                                   n_time_features=len(time_features))
                 model, config = mb.get()
@@ -664,25 +770,30 @@ class Researcher:
                         # формируем загрузчик данных
                         train_dataloader = create_train_dataloader(
                             config=config,
-                            freq=bot.get('freq'),
+                            freq=freq,
                             data=train_ds,
                             batch_size=bot.get('train_batch_size'),
                             num_batches_per_epoch=bot.get('num_batches_per_epoch'),
                             time_features=time_features,
                         )
                         # обучаем модель
-                        model, stage_losses, device, stage_train_sec, learning_rates \
-                            = train(model, config, train_dataloader, bot, stage_index, len(bot.get("end_shifts")))
+                        model, stage_losses, device, stage_train_sec, lrs \
+                            = train_model(model, config, train_dataloader, bot, stage_index, len(bot.get("end_shifts")))
+                        if stage_index == 0:
+                            learning_rates = lrs
 
                         # формируем тестовую выборку и делаем инференс
                         test_dataloader = create_test_dataloader(
                             config=config,
-                            freq=bot.get('freq'),
-                            data=test_ds,
+                            freq=freq,
+                            # подаём на инференс тренировочный датасет, чтобы получить
+                            # последующую предсказанную последовательность
+                            data=train_ds,
+                            # data=test_ds,
                             batch_size=64,
                             time_features=time_features,
                         )
-                        # shape: (N_CHANNELS, num_parallel_samples=100, prediction_len),
+                        # forecast: (N_CHANNELS, num_parallel_samples=100, prediction_len),
                         forecast = inference(model, test_dataloader, config, device)
                         forecasts = np.concatenate([forecasts, forecast], axis=2)
 
@@ -717,17 +828,31 @@ class Researcher:
                 # выводим статистику бота
                 if self.show_graphs:
                     # learning_rates - данные последней стадии обучения
-                    dashboard(bot.metrics, test_ds, forecasts, learning_rates, bot,
-                              total_periods=self.total_periods,
-                              name=str(bot)
-                              )
+                    dashboard(bot.metrics, test_ds, forecasts, learning_rates, bot, name=str(bot))
                 # освобождаем память
-                del model, train_dataloader, test_dataloader
+                del train_dataloader, test_dataloader
                 torch.cuda.empty_cache()
                 gc.collect()
 
             # выводим рейтинг 10-ти лучших ботов на текущий цикл
             self.print_bots_rating(num=10)
+
+        # сохраним последний полученный прогноз - применимо при обучении единственного бота
+        if forecast is not None and do_forecast:
+            # используем тестовый датасет для прогноза - он всегда содержит полные данные до даты прогноза
+            test_dataloader = create_test_dataloader(
+                config=config,
+                freq=freq,
+                data=test_ds,
+                batch_size=64,
+                time_features=time_features,
+            )
+            # forecast: (N_CHANNELS, num_parallel_samples=100, prediction_len),
+            forecast = inference(model, test_dataloader, config, device)
+            assert 'ROENTGEN.FORECAST_START_DATE' in os.environ, 'Дата начала прогноза не найдена в переменных среды.'
+            forecast_start_date = os.environ['ROENTGEN.FORECAST_START_DATE']
+            save_forecast(forecast, datetime.fromisoformat(forecast_start_date))
+            print('Данные прогноза сохранены.')
 
         # очистим кэш сохраннённых выборок, т.к. при следующем запуске они могут быть другими
         if train_ds:
