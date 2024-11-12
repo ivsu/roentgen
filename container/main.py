@@ -4,6 +4,7 @@ import os
 from common.showdata import show_time_series_by_year, show_doctors, show_legend, show_sample_example
 from workplan.planner import search_hyperparameters, learn_best_bots, learn_default
 from schedule.scheduler2 import calculate_schedule
+from schedule.show_schedule import ShowSchedule
 
 VALID_MODES = [
     '--show-legend',
@@ -12,6 +13,7 @@ VALID_MODES = [
     '--show-sample-example',
     '--train-model',
     '--calculate-schedule',
+    '--show-schedule'
     '--search-hyperparameters',
     '--learn-best-bots',
     '--calculate-schedule',
@@ -74,9 +76,12 @@ if __name__ == '__main__':
         calculate_schedule(
             plan_version='forecast',
             n_generations=30,
-            population_size = 100,
-            n_survived = 50
+            population_size=100,
+            n_survived=50
         )  # validation, forecast
+    elif mode == '--show-schedule':
+        show = ShowSchedule(read_data=True)
+        show.plot()
     elif mode == '--search-hyperparameters':
         search_hyperparameters()
     elif mode == '--learn-best-bots':

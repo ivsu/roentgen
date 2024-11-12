@@ -1,5 +1,4 @@
 import os
-import pandas as pd
 from datetime import datetime, timedelta
 from plotly import graph_objects as go
 from plotly.subplots import make_subplots
@@ -25,8 +24,8 @@ class ShowSchedule:
         self.schedule_version = 'final'
         self.data_layer = 'day_modality'
 
-        assert 'ROENTGEN.FORECAST_START_DATE' in os.environ, 'В переменных среды не задана дата начала расчёта графика.'
-        schedule_month_start = datetime.fromisoformat(os.environ['ROENTGEN.FORECAST_START_DATE'])
+        assert 'ROENTGEN.SCHEDULE_START_DATE' in os.environ, 'В переменных среды не задана дата начала расчёта графика.'
+        schedule_month_start = datetime.fromisoformat(os.environ['ROENTGEN.SCHEDULE_START_DATE'])
         if schedule_month_start.day != 1:
             # получаем дату начала месяца для отображения графика
             schedule_month_start = (schedule_month_start.replace(day=1) + timedelta(days=32)).replace(day=1)
@@ -47,6 +46,7 @@ class ShowSchedule:
         else:
             # df['work_time'] = df['time_volume'].total_seconds() / 3600
             raise NotImplementedError()
+        df.loc[df['availability'] == -1, 'modality'] = 'absent'
         return df
 
     def get_formatted_schedule(self):
@@ -69,8 +69,9 @@ class ShowSchedule:
         col_names = list(df.columns)
         col_width = [80] + [40 for _ in range(len(col_names) - 1)]
 
-        mod_color = ['Tan', 'DarkTurquoise', 'DeepSkyBlue', 'GreenYellow', 'Khaki', 'LightPink']
-        color_map = dict(zip(MODALITIES, mod_color))
+        mod_color = ['Tan', 'DarkTurquoise', 'DeepSkyBlue', 'GreenYellow', 'Khaki', 'LightPink', 'DimGrey']
+        color_map = dict(zip(MODALITIES + ['absent'], mod_color))
+        legend_labels = [n for m, n in CHANNEL_LEGEND.items() if m in MODALITIES] + ['Отсутствует']
 
         def map_color(x):
             if x in color_map.keys():
@@ -82,23 +83,23 @@ class ShowSchedule:
 
         fig = make_subplots(
             rows=2, cols=2,
-            column_widths=[0.6, 0.4],
+            column_widths=[0.7, 0.3],
             specs=[[{'type': 'domain'}, {}],
                    [{'type': 'domain', 'colspan': 2}, None],
                    ],
             vertical_spacing=0.05,
             row_heights=[0.1, 1.5],
         )
-        fig.add_trace(
+        fig.add_trace(  # легенда
             go.Table(
                 header=None,
-                cells=dict(values=['Модальности:'] +[n for m, n in CHANNEL_LEGEND.items() if m in MODALITIES],
+                cells=dict(values=['Модальности:'] + legend_labels,
                            fill_color=['white'] + mod_color,
                            align='center'),
             ),
             row=1, col=1,
         )
-        fig.add_trace(
+        fig.add_trace(  # график
             go.Table(
                 columnwidth=col_width,
                 header=dict(values=list(df.columns),
@@ -125,11 +126,8 @@ class ShowSchedule:
 if __name__ == '__main__':
     logger.setup(level=logger.INFO, layout='debug')
 
-    # установим количество каналов данных
-    os.environ['ROENTGEN.N_CHANNELS'] = str(6)
-
-    # установим дату начала прогноза
-    os.environ['ROENTGEN.FORECAST_START_DATE'] = '2024-04-29'
+    # установим дату начала графика
+    os.environ['ROENTGEN.SCHEDULE_START_DATE'] = '2024-05-01'
 
     show = ShowSchedule(read_data=True)
     show.plot()

@@ -40,8 +40,8 @@ TMP_FILE_PATH = '/Users/ivan/Documents/CIFROPRO/Проекты/Нейронк�
 def calculate_schedule(plan_version, n_generations=30, population_size=100, n_survived=50,
                        generate_doctor_availability=False,
                        correct_doctor_table=False):
-    assert 'ROENTGEN.FORECAST_START_DATE' in os.environ, 'В переменных среды не задана дата начала расчёта графика.'
-    schedule_month_start = datetime.fromisoformat(os.environ['ROENTGEN.FORECAST_START_DATE'])
+    assert 'ROENTGEN.SCHEDULE_START_DATE' in os.environ, 'В переменных среды не задана дата начала расчёта графика.'
+    schedule_month_start = datetime.fromisoformat(os.environ['ROENTGEN.SCHEDULE_START_DATE'])
 
     # генерируем график доступности врачей
     if generate_doctor_availability:
