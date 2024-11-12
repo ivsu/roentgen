@@ -1,6 +1,7 @@
 import os
 import sqlite3
 import pandas as pd
+from datetime import datetime
 
 from common.logger import Logger
 from settings import PROJECT_FOLDER
@@ -106,9 +107,26 @@ class DB:
             curr.execute(q)
             self.connection.commit()
 
-    def convert_columns(self, df, columns: list):
+    def convert_str(self, df, columns: list):
         for col in columns:
             df[col] = df[col].apply(lambda x: "'" + str(x) + "'")
+
+    def convert_datetime(self, df, columns: list):
+        for col in columns:
+            df[col] = df[col].apply(lambda dt: f"'{dt.strftime('%Y-%m-%d %H:%M:%S')}'")
+
+    def convert_time(self, df, columns: list):
+        """Конвертирует время из timedelta в строковое представление."""
+        def f(t):
+            if pd.isna(t):
+                return "'00:00:00'"
+            ts = t.total_seconds()
+            hours, remainder = divmod(ts, 3600)
+            minutes, seconds = divmod(remainder, 60)
+            return f"'{int(hours):02d}:{int(minutes):02d}:{int(seconds):02d}'"
+
+        for col in columns:
+            df[col] = df[col].apply(f)
 
 
 if __name__ == '__main__':

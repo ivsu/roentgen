@@ -3,7 +3,7 @@ import os
 
 from common.showdata import show_time_series_by_year, show_doctors, show_legend, show_sample_example
 from workplan.planner import search_hyperparameters, learn_best_bots, learn_default
-from schedule.scheduler import calculate_schedule
+from schedule.scheduler2 import calculate_schedule
 
 VALID_MODES = [
     '--show-legend',

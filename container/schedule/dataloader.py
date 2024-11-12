@@ -313,8 +313,31 @@ class DataLoader:
                         ddp.modality
                     ;"""
             else:
-                raise NotImplementedError('Запрос для SQLite с data_layer == day_modality не реализован.')
-
+                query = f"""
+                    -- расписание по врачам на месяц по дням в разрезе модальностей
+                    SELECT
+                        d.id as doctor_id,
+                        d.name,
+                        date(da.day_start, 'start of day') as day,
+                        da.availability,
+                        --da.time_volume
+                        ddp.modality,
+                        ddp.time_volume as time_volume
+                    FROM {self.schema_placeholder}doctor_availability as da
+                    LEFT JOIN {self.schema_placeholder}doctor as d
+                        ON d.uid = da.doctor
+                    LEFT JOIN {self.schema_placeholder}doctor_day_plan as ddp
+                        ON ddp.doctor_availability = da.uid
+                    WHERE
+                        da.version = '{version}' 
+                        and date(da.day_start, 'start of month') = '{month_start.strftime('%Y-%m-%d')}'
+                    --GROUP BY
+                    --    d.id,
+                    --    d.name,
+                    --    date(da.day_start, 'start of day'),
+                    --    da.availability,
+                    --    ddp.modality
+                    ;"""
         elif data_layer == 'day_modality_ce':
             if DB_VERSION == 'PG':
                 query = f"""

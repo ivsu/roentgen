@@ -268,7 +268,7 @@ def load_doctor_availability(tablename, month_start, version, msg='Сохран�
     df['version'] = version
 
     if DB_VERSION == 'SQLite':
-        db.convert_columns(df, ['uid', 'version', 'doctor', 'day_start', 'time_volume'])
+        db.convert_str(df, ['uid', 'version', 'doctor', 'day_start', 'time_volume'])
 
     unique = ['version', 'doctor', 'day_start']
     try:

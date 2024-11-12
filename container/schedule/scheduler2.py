@@ -60,14 +60,6 @@ def calculate_schedule(plan_version, n_generations=30, population_size=100, n_su
     scheduler.run(save=True)
 
 
-# def plot(x, y_dict, title):
-#     for key in y_dict.keys():
-#         y = y_dict[key]
-#         plt.plot(x, y)
-#     plt.title(title)
-#     plt.legend(y_dict.keys())
-#     plt.show()
-
 def plot(x, y_dict, title):
     fig = go.Figure()
     for key in y_dict.keys():
@@ -361,8 +353,10 @@ class Scheduler:
         n_days = self.v_plan.shape[3]
         self.v_base_avail = self.v_base_avail[..., :n_days]
 
+        self.available = None
         if correct_doctor_table and self.mode != 'test':
             available = self.correct_doctors()
+            self.available = available
             # корректировка данных
             self.doctor_df['available'] = pd.Series(available)
             self.doctor_df = self.doctor_df[self.doctor_df['available']]
@@ -817,28 +811,46 @@ class Scheduler:
         logger.info(f'Общая разница рассчитанного графика и плана работ: {diff.sum() / SECONDS:.1f}')
         logger.info(f'Относительная разница рассчитанного графика и плана работ: {v_schedule.sum() / v_plan.sum():.3f}')
 
-        plot(np.arange(self.n_generations + 1), counter, 'Общий штраф за поколение')
+        plot(np.arange(self.n_generations + 1), counter, 'Значения штрафов')
         # пишем лучшего бота в базу
         if save:
             self.save_bot(best_bot)
 
     def save_bot(self, bot):
 
+        print('Сохранение расписания...')
+        db_schema_placeholder = f'{self.db_schema}.' if DB_VERSION == 'PG' else ''
+
         doctors = self.dataloader.get_doctors_for_schedule_save()
+        # -> id, uid, day_start_time, schedule_type, time_rate, row_index
+        if self.available is not None:
+            doctors['included'] = pd.Series(self.available)
+            doctors = doctors[doctors['included'] != 0]
         doctors = doctors.set_index('row_index').T.to_dict()
 
         output = []
-        for doctor_index in range(len(bot)):
-            for day_index in range(len(bot[0, 0])):
-                time_volumes = []
-                mods = []
-                for mod_index in range(len(bot[0])):
+        doctor_index = 0
+        for doctor_key in doctors.keys():
+            for day_index in range(bot.shape[2]):
+                work_time = None
+                mod = None
+                for mod_index in range(bot.shape[1]):
                     time_volume = timedelta(seconds=bot[doctor_index, mod_index, day_index].item())
-                    if time_volume > timedelta(seconds=0):
-                        time_volumes.append(time_volume)
-                        mods.append(mod_index)
-                output.append([doctor_index, mods, day_index, time_volumes])
-        df = pd.DataFrame(output, columns=['doctor_index', 'mods', 'day_index', 'time_volumes'])
+                    if time_volume > timedelta(seconds=1):
+                        work_time = time_volume
+                        mod = mod_index
+                        # time_volumes.append(time_volume)
+                        # mods.append(mod_index)
+                output.append([doctor_key, mod, day_index, work_time, doctor_index])
+            doctor_index += 1
+        df = pd.DataFrame(output, columns=['doctor_key', 'mod', 'day_index', 'time_volume', 'doctor_index'])
+        df['mod'] = df['mod'].astype('Int32')
+        # df['mod'] = df[~df['mod'].isnull()].astype(int)
+            # apply(lambda v: int(v) if v and v != np.nan else np.nan)
+        # time_mods = bot.transpose(0, 2, 1)
+        # time_mods = time_mods.reshape(bot.shape[0], -1)
+        # time_mods = bot[:, ]
+        # df_tmp = np.where(bot > 0.1,
 
         version = 'final'
         doctor_day_plan = []
@@ -846,45 +858,64 @@ class Scheduler:
         def set_row(row):
             row['uid'] = uuid.uuid4()
             doctor_index = row['doctor_index']
-            doctor = doctors[doctor_index]
+            doctor_key = row['doctor_key']
+            doctor = doctors[doctor_key]
             row['doctor'] = doctor['uid']
+            day_start_time = datetime.strptime(doctor['day_start_time'], '%H:%M:%S').time()
             row['day_start'] = datetime.combine(
-                self.month_layout['month_start'] + timedelta(days=row['day_index']), doctor['day_start_time'])
-            row['availability'] = self.v_base_avail[0, doctor_index, 0, row['day_index']]
+                self.month_layout['month_start'] + timedelta(days=row['day_index']),
+                day_start_time)
+            base_avail = self.v_base_avail[0, doctor_index, 0, row['day_index']]
+            row['availability'] = -1 if base_avail == -1 else \
+                0 if pd.isna(row['mod']) else 1
 
-            if row['availability'] == 1:
-                day_time = timedelta(hours=8)
-                if doctor['schedule_type'] == '2/2':
-                    day_time = timedelta(hours=12)
-                row['time_volume'] = day_time * doctor['time_rate']
-            else:
-                row['time_volume'] = timedelta(seconds=0)
+            # if row['availability'] == 1:
+            #     day_time = timedelta(hours=8)
+            #     if doctor['schedule_type'] == '2/2':
+            #         day_time = timedelta(hours=12)
+            #     row['time_volume'] = day_time * doctor['time_rate']
+            # else:
+            #     row['time_volume'] = timedelta(seconds=0)
 
             # формируем связанную таблицу по модальностям
-            if len(row['mods']) > 0:
-                mods = row['mods']
-                for mod_index in mods:
-                    # TODO: в БД пишем без КУ
-                    doctor_day_plan.append(
-                        [version, row['uid'], MODALITIES[mod_index], 'none', row['time_volume']]
-                    )
+            # if len(row['mods']) > 0:
+            if not pd.isna(row['mod']):
+                # mods = row['mods']
+                # mod_index = int(row['mod']) if row['mod'] else None
+                mod = MODALITIES[row['mod']]
+                # for mod_index in mods:
+                #     doctor_day_plan.append(
+                #         [version, row['uid'], MODALITIES[mod_index], 'none', row['time_volume']]
+                #     )
+                doctor_day_plan.append(
+                    [version, row['uid'], mod, 'none', row['time_volume']]
+                )
             return row
 
+        db = DB(self.db_schema)
         df['uid'] = None
         df['version'] = version
         df['doctor'] = None
         df['day_start'] = None
-        df['availability'] = None
-        df['time_volume'] = None
+        df['availability'] = pd.Series(dtype=int)
+        # df['time_volume'] = None
         df = df.apply(set_row, axis=1)
-        df.drop(columns=['doctor_index', 'mods', 'day_index', 'time_volumes'])
+        # df.drop(columns=['doctor_key', 'mods', 'day_index', 'time_volumes', 'bot_index'], inplace=True)
+        df.drop(columns=['doctor_key', 'mod', 'day_index', 'doctor_index'], inplace=True)
 
         df_day = pd.DataFrame(doctor_day_plan, columns=[
-            'version', 'doctor_availability', 'modality', 'contrast_enhancement', 'time_volume'])
+            'version', 'doctor_availability', 'modality', 'contrast_enhancement', 'time_volume'
+        ])
 
-        q = f"delete from {self.db_schema}.doctor_availability where version = '{version}'"
-        q_day = f"delete from {self.db_schema}.doctor_day_plan where version = '{version}'"
-        db = DB(self.db_schema)
+        if DB_VERSION == 'SQLite':
+            db.convert_str(df, ['uid', 'version', 'doctor'])
+            db.convert_datetime(df, ['day_start'])
+            db.convert_time(df, ['time_volume'])
+            db.convert_str(df_day, ['version', 'doctor_availability', 'modality', 'contrast_enhancement'])
+            db.convert_time(df_day, ['time_volume'])
+
+        q = f"delete from {db_schema_placeholder}doctor_availability where version = '{version}'"
+        q_day = f"delete from {db_schema_placeholder}doctor_day_plan where version = '{version}'"
         with db.get_cursor() as cursor:
             cursor.execute(q)
             cursor.execute(q_day)
@@ -1136,7 +1167,7 @@ if __name__ == '__main__':
     # main_month_start = datetime(2024, 1, 1)
     # установим дату начала расчёта графика работы
     os.environ['ROENTGEN.SCHEDULE_START_DATE'] = '2024-05-01'
-    def settings():
+    def settings():  # точка перехода в IDE
         pass
 
     mode = 'main'  # main, test (запись и чтение в тестовой БД - будет ошибка, если нет данных)
@@ -1147,7 +1178,7 @@ if __name__ == '__main__':
         population_size = 4
         n_survived = 2
     else:
-        n_generations = 50  # 10
+        n_generations = 2  # 10
         population_size = 100  # 100
         n_survived = 60  # 50
 
@@ -1168,7 +1199,7 @@ if __name__ == '__main__':
     # main_scheduler._generate_doctors_mods()
     # main_scheduler.populate(n_bots=main_scheduler.population_size)
     # main_scheduler.correct_doctors_table()
-    main_scheduler.run(save=False)
+    main_scheduler.run(save=True)
 
     # schedule = dataloader.get_schedule('base', month_start, data_layer='day')
     # schedule = dataloader.get_schedule('base', month_start, data_layer='day_modality')

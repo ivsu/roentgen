@@ -5,11 +5,14 @@ from workplan.datamanager import DataManager
 from workplan.genetic import Researcher
 from workplan.show import indicators
 from workplan.planner import learn_best_bots
+# from schedule.show_schedule import get_formatted_schedule
 from common.logger import Logger
 
 logger = Logger(__name__)
 
 """
+    Библиотека для выполнения полного цикла прогнозирования и расчёта графика с сохранением его в БД.
+    
     Алгоритм прогноза и расчёта графика:
     + сохраняем единичного бота на диск (также будет работать и при подборе гиперпараметров)
     + считываем и обучаем одного лучшего бота с параметром save_forecast=True
@@ -18,7 +21,7 @@ logger = Logger(__name__)
       с версией forecast
     - в Scheduler:
       - настроить понятный вывод результатов поиска;
-      - прикрутить вывод графика в plotly
+      + прикрутить вывод графика в plotly
       - настрить сохранение в SQLite
       - считываем и выводим в виде датафрейма
       - сделать запуск
@@ -34,8 +37,11 @@ def predict_and_calc_schedule():
     - расчёт графика работы врачей на основе прогноза и сохранение его в БД.
     """
     # запускаем обучение одного (лучшего в пространстве имён) бота
+    # после обучения, бот сохраняет полученных прогноз объёмов работ в БД в таблицу work_plan_summary
     # learn_best_bots(n_bots=1, namespace='99', end_shifts=[-15, -10, -5, 0], do_forecast=True)
     learn_best_bots(n_bots=1, namespace='99', end_shifts=[-5, 0], do_forecast=True)
+
+    # TODO: запуск get_formatted_schedule
 
 
 if __name__ == '__main__':
@@ -48,4 +54,8 @@ if __name__ == '__main__':
     # установим дату начала прогноза
     os.environ['ROENTGEN.FORECAST_START_DATE'] = '2024-04-29'
 
-    predict_and_calc_schedule()
+    # predict_and_calc_schedule()
+
+
+
+
