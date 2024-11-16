@@ -31,8 +31,8 @@ def plot_smth():
 
 
 def time_series_by_year(data: list[dict]):
+    plot_smth()
     fig = go.Figure()
-
     data_index = 0
 
     def get_data(index):
@@ -79,7 +79,6 @@ def time_series_by_year(data: list[dict]):
             ),
         ],
     )
-    plot_smth()
     fig.show()
 
 
