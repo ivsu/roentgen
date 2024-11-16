@@ -9,8 +9,8 @@ from schedule.dataloader import DataLoader
 from workplan.datamanager import DataManager, get_channels_settings, CHANNEL_LEGEND, COLLAPSED_CHANNELS, ALL_CHANNELS
 from workplan.hyperparameters import Hyperparameters
 from workplan.dataloaders import create_train_dataloader
-from workplan.show import time_series_by_year, activate_plotly
-# import settings  # загружается, чтобы сформировать переменную среды RUN_ENV
+from workplan.show import time_series_by_year
+from settings import RUN_ENV
 
 
 def convert_dataset(ds, skip_start_weeks=0, verbose=0) -> list[dict]:
@@ -75,6 +75,28 @@ def convert_dataset(ds, skip_start_weeks=0, verbose=0) -> list[dict]:
                 print(f'{key}: {value}')
 
     return data
+
+
+def activate_plotly():
+    if RUN_ENV != 'COLAB':
+        return
+    fig = go.Figure(
+        data=[go.Table(
+            header=dict(
+                values=['активация plotly...'],
+                height=26,
+                fill_color='rgba(56, 56, 56, 1)',
+                line_color='rgba(100, 100, 100, 0.0)',
+                font_color='rgba(227, 227, 227, 1.0)',
+                align='left',
+            ))],
+        layout=dict(
+            width=135,
+            height=26,
+            # paper_bgcolor='rgba(222, 222, 222, 1)',
+            margin=dict(t=0, b=0, r=0, l=0),
+        ))
+    fig.show()
 
 
 def show_time_series_by_year(data_version):

@@ -69,7 +69,6 @@ if __name__ == '__main__':
         check_environ('ROENTGEN.FORECAST_START_DATE')
         show_sample_example(batch_size=8)
     elif mode == '--train-model':
-        # TODO: починить вывод дашборда в колаб
         check_environ('ROENTGEN.N_CHANNELS')
         check_environ('ROENTGEN.FORECAST_START_DATE')
         # обучим модель с параметрами по умолчанию, выполним прогноз работ от даты начала прогноза

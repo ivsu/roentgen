@@ -8,31 +8,6 @@ from plotly.subplots import make_subplots
 from workplan.datamanager import get_channels_settings
 
 
-def activate_plotly():
-    fig = go.Figure(
-        data=[go.Table(
-            header=dict(
-                values=['активация plotly'],
-                height=20,
-                fill_color='rgba(222, 222, 222, 0.5)',
-                line_color='rgba(100, 100, 100, 0.0)',
-                align='left',
-            ),
-            # cells=dict(
-            #     values=['something'],
-            #     height=10,
-            # )
-        )])
-    fig.update_layout(
-        # title_text='Заголовок',
-        width=120,
-        height=20,
-        # paper_bgcolor='rgba(222, 222, 222, 1)',
-        margin=dict(t=0, b=0, r=0, l=0),
-    )
-    fig.show()
-
-
 def time_series_by_year(data: list[dict]):
     fig = go.Figure()
     data_index = 0

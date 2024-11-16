@@ -24,7 +24,7 @@ from workplan.dataloaders import create_train_dataloader, create_test_dataloader
 from workplan.schedulers import WarmupAndDecayScheduler
 from workplan.datamanager import get_channels_settings
 from common.logger import Logger
-from common.showdata import expand_pandas_output
+from common.showdata import expand_pandas_output, activate_plotly
 from settings import DB_VERSION
 if DB_VERSION == 'PG':
     from common.db import DB, get_all
@@ -714,6 +714,7 @@ class Researcher:
         forecast, config, time_features, freq = None, None, None, None
         model, device = None, None
         learning_rates = None
+        activate_plotly()
 
         # цикл смены популяций ботов
         for shift in range(from_shift, n_search):
