@@ -30,6 +30,10 @@ def plot_smth():
     fig.show()
 
 
+def time_series_by_year_v2(data: list[dict]):
+    plot_smth()
+
+
 def time_series_by_year(data: list[dict]):
     plot_smth()
     fig = go.Figure()

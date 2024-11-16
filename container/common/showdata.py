@@ -9,7 +9,7 @@ from schedule.dataloader import DataLoader
 from workplan.datamanager import DataManager, get_channels_settings, CHANNEL_LEGEND, COLLAPSED_CHANNELS, ALL_CHANNELS
 from workplan.hyperparameters import Hyperparameters
 from workplan.dataloaders import create_train_dataloader
-from workplan.show import time_series_by_year
+from workplan.show import time_series_by_year, time_series_by_year_v2
 # import settings  # загружается, чтобы сформировать переменную среды RUN_ENV
 
 
@@ -94,7 +94,8 @@ def show_time_series_by_year(data_version):
     ds = dm.from_generator(splits=2, split='test', end_shift=0)
 
     data = convert_dataset(ds, skip_start_weeks=0, verbose=0)
-    time_series_by_year(data)
+    # time_series_by_year(data)
+    time_series_by_year_v2()
 
 
 def show_doctors():
