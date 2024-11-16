@@ -95,7 +95,8 @@ def show_time_series_by_year(data_version):
 
     data = convert_dataset(ds, skip_start_weeks=0, verbose=0)
     # time_series_by_year(data)
-    time_series_by_year_v2(data)
+    time_series_by_year_v2()
+
 
 
 def show_doctors():

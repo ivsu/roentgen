@@ -30,7 +30,7 @@ def plot_smth():
     fig.show()
 
 
-def time_series_by_year_v2(data: list[dict]):
+def time_series_by_year_v2():
     plot_smth()
 
 
