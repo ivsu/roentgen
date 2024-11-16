@@ -52,7 +52,7 @@ if __name__ == '__main__':
                 assert len(parts) == 2, "Неверно задан параметр для опции --forecast_start_date."
                 # установим дату начала прогноза (датасет будет урезан до неё)
                 os.environ['ROENTGEN.FORECAST_START_DATE'] = str(parts[1])
-            elif '--planning_start_date' == parts[0]:
+            elif '--schedule_start_date' == parts[0]:
                 assert len(parts) == 2, "Неверно задан параметр для опции --schedule_start_date."
                 # установим дату начала прогноза (датасет будет урезан до неё)
                 os.environ['ROENTGEN.SCHEDULE_START_DATE'] = str(parts[1])

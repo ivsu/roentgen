@@ -84,18 +84,26 @@ class ShowSchedule:
         fig = make_subplots(
             rows=2, cols=2,
             column_widths=[0.7, 0.3],
-            specs=[[{'type': 'domain'}, {}],
-                   [{'type': 'domain', 'colspan': 2}, None],
+            specs=[[{'type': 'table'}, {}],
+                   [{'type': 'table', 'colspan': 2}, None],
                    ],
-            vertical_spacing=0.05,
-            row_heights=[0.1, 1.5],
+            insets=[dict(cell=(1, 1), type='table')],
+            vertical_spacing=0.02,
+            row_heights=[0.08, 0.92],
+            # row_width=[10, 50]
         )
         fig.add_trace(  # легенда
             go.Table(
-                header=None,
-                cells=dict(values=['Модальности:'] + legend_labels,
-                           fill_color=['white'] + mod_color,
-                           align='center'),
+                header=dict(
+                    fill_color='white',
+                    height=2,
+                ),
+                cells=dict(
+                    values=['Модальности:'] + legend_labels,
+                    fill_color=['white'] + mod_color,
+                    align='center',
+                    height=26,
+                    ),
             ),
             row=1, col=1,
         )
@@ -111,13 +119,11 @@ class ShowSchedule:
             ),
             row=2, col=1,
         )
-        fig.update_layout(
-            # margin=dict(t=0, b=0),
-            margin=dict(t=30),
-        )
-        fig.layout['template']['data']['table'][0]['header']['fill']['color'] = 'rgba(0,0,0,0)'
+        # fig.layout['template']['data']['table'][0]['header']['fill']['color'] = 'rgba(0,0,0,0)'
         fig.update_layout(
             title_text=f'Расписание работы врачей-рентгенологов на {month_period(self.schedule_month_start)}',
+            margin=dict(t=30, b=10),
+            height=600,
             # showlegend=True,
         )
         fig.show()
