@@ -6,6 +6,9 @@ from gluonts.dataset.field_names import FieldName
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from workplan.datamanager import get_channels_settings
+from settings import RUN_ENV
+
+RENDERER = 'colab' if RUN_ENV == 'COLAB' else 'browser'
 
 
 def time_series_by_year(data: list[dict]):
@@ -57,7 +60,7 @@ def time_series_by_year(data: list[dict]):
             ),
         ],
     )
-    fig.show()
+    fig.show(renderer=RENDERER)
 
 
 def dashboard(metrics, dataset, forecasts, learning_rates, bot, name):

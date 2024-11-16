@@ -84,7 +84,6 @@ if __name__ == '__main__':
             n_survived=50
         )  # validation, forecast
     elif mode == '--show-schedule':
-        # TODO: настроить вывод легенды в колабе
         check_environ('ROENTGEN.SCHEDULE_START_DATE')
         show = ShowSchedule(read_data=True)
         show.plot()
