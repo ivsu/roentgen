@@ -10,8 +10,16 @@ from settings import RUN_ENV
 
 RENDERER = 'colab' if RUN_ENV == 'COLAB' else 'browser'
 
+
 def plot_smth():
-    fig = go.Figure()
+    fig = go.Figure(
+        data=[go.Table(
+            header=dict(fill_color='white'),
+            cells=dict(
+                values=['something'],
+                height=15,
+            )
+        )])
     fig.show()
 
 

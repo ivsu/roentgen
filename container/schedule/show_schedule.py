@@ -83,16 +83,11 @@ class ShowSchedule:
 
         fig = make_subplots(
             rows=2, cols=1,
-            # column_widths=[0.9, 0.1],
-            # specs=[[{'type': 'table'}, {}],
-            #        [{'type': 'table', 'colspan': 2}, None],
-            #        ],
             specs=[[{'type': 'table'}],
                    [{'type': 'table'}],
                    ],
             vertical_spacing=0.05,
             row_heights=[0.08, 0.92],
-            # row_width=[10, 50]
         )
         fig.add_trace(  # легенда
             go.Table(
