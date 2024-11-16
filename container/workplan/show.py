@@ -10,6 +10,10 @@ from settings import RUN_ENV
 
 RENDERER = 'colab' if RUN_ENV == 'COLAB' else 'browser'
 
+def plot_smth():
+    fig = go.Figure()
+    fig.show()
+
 
 def time_series_by_year(data: list[dict]):
     fig = go.Figure()
@@ -60,7 +64,9 @@ def time_series_by_year(data: list[dict]):
             ),
         ],
     )
-    fig.show(renderer=RENDERER)
+    plot_smth()
+    # fig.show(renderer=RENDERER)
+    fig.show()
 
 
 def dashboard(metrics, dataset, forecasts, learning_rates, bot, name):
