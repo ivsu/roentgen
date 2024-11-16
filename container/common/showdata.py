@@ -9,7 +9,7 @@ from schedule.dataloader import DataLoader
 from workplan.datamanager import DataManager, get_channels_settings, CHANNEL_LEGEND, COLLAPSED_CHANNELS, ALL_CHANNELS
 from workplan.hyperparameters import Hyperparameters
 from workplan.dataloaders import create_train_dataloader
-from workplan.show import time_series_by_year, time_series_by_year_v2
+from workplan.show import time_series_by_year, activate_plotly
 # import settings  # загружается, чтобы сформировать переменную среды RUN_ENV
 
 
@@ -79,8 +79,7 @@ def convert_dataset(ds, skip_start_weeks=0, verbose=0) -> list[dict]:
 
 def show_time_series_by_year(data_version):
 
-    # time_series_by_year_v2()
-    print()
+    activate_plotly()
 
     hp = Hyperparameters()
 
