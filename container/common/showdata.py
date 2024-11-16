@@ -114,9 +114,26 @@ def show_legend():
 
     fig = go.Figure(
         data=[go.Table(
-            header=dict(values=channels),
-            cells=dict(values=[CHANNEL_LEGEND[key] for key in channels]))
-            ])
+            header=dict(
+                values=channels,
+                height=30,
+            ),
+            cells=dict(
+                values=[CHANNEL_LEGEND[key] for key in channels],
+                height=30,
+            )
+        )])
+    fig.update_layout(
+        title_text='Расшифровка модальностей врачей',
+        width=900,
+        # autosize=False,
+        height=240,  # это примерно (для точности нужно учесть высоту заголовка)
+        # grid={'rows': 1, 'columns': len(params), 'pattern': 'independent'},
+        paper_bgcolor='rgba(222, 222, 222, 1)',
+        # plot_bgcolor='rgba(128, 128, 192, 1)',  # для индикаторов, похоже, не работает
+        # margin={'autoexpand': False, 'pad': 30, 'l': 20}
+        # margin=dict(l=30, r=30, t=30, b=20, pad=40),
+    )
     fig.show()
 
 
