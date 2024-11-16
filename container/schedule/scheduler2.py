@@ -302,7 +302,7 @@ class Scheduler:
         self.dataloader = DataLoader(self.db_schema)
         print('Количество поколений:', n_generations)
         print('Размер популяции:', population_size)
-        print('Количество выжывающих:', n_survived)
+        print('Количество выживающих:', n_survived)
         ax = np.newaxis
 
         # получаем таблицу врачей

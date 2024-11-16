@@ -13,7 +13,7 @@ VALID_MODES = [
     '--show-sample-example',
     '--train-model',
     '--calculate-schedule',
-    '--show-schedule'
+    '--show-schedule',
     '--search-hyperparameters',
     '--learn-best-bots',
     '--calculate-schedule',
@@ -23,7 +23,7 @@ VALID_MODES = [
 
 def check_environ(variable):
     if variable not in os.environ:
-        raise ValueError('Не задана переменная:', )
+        raise ValueError('Не задана переменная:', variable)
 
 
 def print_help():
@@ -58,14 +58,18 @@ if __name__ == '__main__':
                 os.environ['ROENTGEN.SCHEDULE_START_DATE'] = str(parts[1])
 
     if mode == '--show-legend':
+        check_environ('ROENTGEN.N_CHANNELS')
         show_legend()
     elif mode == '--show-doctors':
         show_doctors()
     elif mode == '--show-time-series-by-year':
+        check_environ('ROENTGEN.N_CHANNELS')
         show_time_series_by_year(data_version='train')
     elif mode == '--show-sample-example':
+        check_environ('ROENTGEN.FORECAST_START_DATE')
         show_sample_example(batch_size=8)
     elif mode == '--train-model':
+        # TODO: починить вывод дашборда в колаб
         check_environ('ROENTGEN.N_CHANNELS')
         check_environ('ROENTGEN.FORECAST_START_DATE')
         # обучим модель с параметрами по умолчанию, выполним прогноз работ от даты начала прогноза
@@ -80,6 +84,8 @@ if __name__ == '__main__':
             n_survived=50
         )  # validation, forecast
     elif mode == '--show-schedule':
+        # TODO: настроить вывод легенды в колабе
+        check_environ('ROENTGEN.SCHEDULE_START_DATE')
         show = ShowSchedule(read_data=True)
         show.plot()
     elif mode == '--search-hyperparameters':

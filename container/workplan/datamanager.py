@@ -105,12 +105,13 @@ def _transform_start_field(batch):
 
 class DataManager:
 
-    def __init__(self):
+    def __init__(self, date_cut=True):
         """
         Класс для чтения данных с диска и формирования выборок.
         Также позволяет сгруппировать данные до заданной частоты.
         Хранит полученный датафрейм для генерации датасетов.
         """
+        self.date_cut = date_cut
         # датафрейм - источник данных для выборок датасетов
         self.df = None
         # глубина предсказания - длина предсказываемой последовательности
@@ -178,10 +179,11 @@ class DataManager:
             df.drop(['kt_ce1', 'kt_ce2', 'mrt_ce1', 'mrt_ce2'], axis=1, inplace=True)
 
         # если задана дата начала прогноза, урежем датафрейм с этой даты
-        assert 'ROENTGEN.FORECAST_START_DATE' in os.environ, 'Дата начала прогноза не найдена в переменных среды.'
-        forecast_start_date = os.environ['ROENTGEN.FORECAST_START_DATE']
-        df = df[df.index < datetime.fromisoformat(forecast_start_date)]
-        print(f'Конец датафрейма: {df.index.max()}')
+        if self.date_cut:
+            assert 'ROENTGEN.FORECAST_START_DATE' in os.environ, 'Дата начала прогноза не найдена в переменных среды.'
+            forecast_start_date = os.environ['ROENTGEN.FORECAST_START_DATE']
+            df = df[df.index < datetime.fromisoformat(forecast_start_date)]
+        print(f'Конечная дата в данных: {df.index.max()}')
 
         # print(f'columns: {df.columns}')
         self.df = df

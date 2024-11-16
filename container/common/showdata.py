@@ -2,9 +2,11 @@ import numpy as np
 import pandas as pd
 import os
 from transformers import TimeSeriesTransformerConfig
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
 from schedule.dataloader import DataLoader
-from workplan.datamanager import DataManager, get_channels_settings, CHANNEL_LEGEND
+from workplan.datamanager import DataManager, get_channels_settings, CHANNEL_LEGEND, COLLAPSED_CHANNELS, ALL_CHANNELS
 from workplan.hyperparameters import Hyperparameters
 from workplan.dataloaders import create_train_dataloader
 from workplan.show import time_series_by_year
@@ -82,11 +84,11 @@ def show_time_series_by_year(data_version):
     if data_version == 'debug':
         hp.set('prediction_len', 13)
 
-    dm = DataManager()
+    dm = DataManager(date_cut=False)
     dm.read_and_prepare(
         freq=hp.get('freq'),
         prediction_len=hp.get('prediction_len'),
-        data_version=data_version
+        data_version=data_version,
     )
     # формируем полную выборку
     ds = dm.from_generator(splits=2, split='test', end_shift=0)
@@ -105,8 +107,17 @@ def show_doctors():
 
 
 def show_legend():
-    print('Расшифровка модальностей врачей:')
-    print("\n".join(f'{k:>7}: {v}' for k, v in CHANNEL_LEGEND.items()))
+    assert 'ROENTGEN.N_CHANNELS' in os.environ, 'Не задано количество каналов в переменных среды.'
+    n_channels = int(os.environ['ROENTGEN.N_CHANNELS'])
+    assert n_channels in [6, 10]
+    channels = COLLAPSED_CHANNELS if n_channels == 6 else ALL_CHANNELS
+
+    fig = go.Figure(
+        data=[go.Table(
+            header=dict(values=channels),
+            cells=dict(values=[CHANNEL_LEGEND[key] for key in channels]))
+            ])
+    fig.show()
 
 
 def show_sample_example(batch_size):
