@@ -6,20 +6,27 @@ from gluonts.dataset.field_names import FieldName
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from workplan.datamanager import get_channels_settings
-from settings import RUN_ENV
-
-RENDERER = 'colab' if RUN_ENV == 'COLAB' else 'browser'
 
 
 def plot_smth():
     fig = go.Figure(
         data=[go.Table(
-            header=dict(fill_color='white'),
+            header=dict(
+                values=['header'],
+                height=30,
+                # fill_color='white'
+            ),
             cells=dict(
                 values=['something'],
-                height=15,
+                height=30,
             )
         )])
+    fig.update_layout(
+        title_text='Заголовок',
+        width=300,
+        height=300,
+        paper_bgcolor='rgba(222, 222, 222, 1)',
+    )
     fig.show()
 
 
@@ -73,7 +80,6 @@ def time_series_by_year(data: list[dict]):
         ],
     )
     plot_smth()
-    # fig.show(renderer=RENDERER)
     fig.show()
 
 
