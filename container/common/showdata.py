@@ -79,24 +79,24 @@ def convert_dataset(ds, skip_start_weeks=0, verbose=0) -> list[dict]:
 
 def show_time_series_by_year(data_version):
 
-    hp = Hyperparameters()
-
-    if data_version == 'debug':
-        hp.set('prediction_len', 13)
-
-    dm = DataManager(date_cut=False)
-    dm.read_and_prepare(
-        freq=hp.get('freq'),
-        prediction_len=hp.get('prediction_len'),
-        data_version=data_version,
-    )
-    # формируем полную выборку
-    ds = dm.from_generator(splits=2, split='test', end_shift=0)
-
-    data = convert_dataset(ds, skip_start_weeks=0, verbose=0)
-    # time_series_by_year(data)
     time_series_by_year_v2()
 
+    # hp = Hyperparameters()
+    #
+    # if data_version == 'debug':
+    #     hp.set('prediction_len', 13)
+    #
+    # dm = DataManager(date_cut=False)
+    # dm.read_and_prepare(
+    #     freq=hp.get('freq'),
+    #     prediction_len=hp.get('prediction_len'),
+    #     data_version=data_version,
+    # )
+    # # формируем полную выборку
+    # ds = dm.from_generator(splits=2, split='test', end_shift=0)
+    #
+    # data = convert_dataset(ds, skip_start_weeks=0, verbose=0)
+    # time_series_by_year(data)
 
 
 def show_doctors():
