@@ -79,7 +79,8 @@ def convert_dataset(ds, skip_start_weeks=0, verbose=0) -> list[dict]:
 
 def show_time_series_by_year(data_version):
 
-    time_series_by_year_v2()
+    # time_series_by_year_v2()
+    print()
 
     hp = Hyperparameters()
 
