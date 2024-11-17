@@ -30,7 +30,7 @@ CREDENTIALS_FILE = PROJECT_FOLDER + 'assets/credentials.json'
 os.environ['RUN_ENV'] = RUN_ENV
 
 if not os.path.exists(BOTS_FOLDER):
-    os.mkdir(BOTS_FOLDER)
+    os.makedirs(BOTS_FOLDER)
 
 if __name__ == '__main__':
     print('RUN_ENV:', RUN_ENV)
