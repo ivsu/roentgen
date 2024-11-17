@@ -791,12 +791,13 @@ class Scheduler:
 
         print(f'\nЛучший бот: {best_bot_id} [{best_bot_source}], оценка: {best_bot_score:8.5f}')
 
+        np.set_printoptions(linewidth=1000)
         if self.mode == 'test':
             # m = 1
             logger.info(f'self.v_base_avail:\n{self.v_base_avail[0, :, 0, :]}')
             # logger.info(f'v_plan:\n{v_plan}')
             logger.info(f'best_bot:\n{best_bot}')
-        np.set_printoptions(formatter=fmt_4_1)
+        # np.set_printoptions(formatter=fmt_4_1)
         # logger.info(f'schedule:\n{schedule / SECONDS}')
         np.set_printoptions(formatter=fmt_6_1)
         print(f'Суммарный подневный план объёмов работ по 6-ти модальностям (часы):\n{v_plan / SECONDS}')
