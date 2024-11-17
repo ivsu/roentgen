@@ -668,7 +668,7 @@ class Scheduler:
         logger.info(f'Форма вектора доступности врачей (v_base_avail): {self.v_base_avail.shape}')
         logger.info(f'Вектор весов модальностей (mod_weights): {self.plan_mod_weights[0, 0, :, 0]},'
                     f' Сумма: {self.plan_mod_weights.sum():.4f}')
-        # counter = {'diff': [], 'diff_minus': [], 'diff_plus': [], 'diff_weighted': []}
+        # counter = {'mae': [], 'diff_minus': [], 'diff_plus': [], 'diff_weighted': []}
         counter = {'population_avg_penalty': [], 'population_min_penalty': [], 'best_bot_penalty': []}
 
 
@@ -774,18 +774,22 @@ class Scheduler:
         best_bots, _, best_bots_data, scores = container.best_bots(1)
         best_bot, best_bot_score = best_bots[0], scores.unpack(0)[0]
         best_bot_id, best_bot_source = best_bots_data[0]['id'], best_bots_data[0]['source']
-        schedule = best_bot.sum(axis=1)
+
         v_plan = self.v_plan[0, 0, :, :]
         v_schedule = best_bot.sum(axis=0)
-        diff = v_schedule - v_plan
-        diff_k = v_schedule / v_plan
+
+        ae = v_schedule - v_plan
+        mae = np.mean(np.abs(v_schedule - v_plan), axis=1)
+        # diff_k = v_schedule / v_plan
+        # se = np.square(v_schedule - v_plan)
+        mse = np.sqrt(np.sum(np.square(v_schedule - v_plan), axis=1))
+        re = v_schedule.sum(axis=1) / v_plan.sum(axis=1) - 1
 
         fmt_4_1 = dict(float=lambda x: f'{x:4.1f}')
         fmt_6_4 = dict(float=lambda x: f'{x:6.4f}')
         fmt_6_1 = dict(float=lambda x: f'{x:6.1f}')
 
         print(f'\nЛучший бот: {best_bot_id} [{best_bot_source}], оценка: {best_bot_score:8.5f}')
-        # self.print_schedule(best_bot)
 
         if self.mode == 'test':
             # m = 1
@@ -795,23 +799,26 @@ class Scheduler:
         np.set_printoptions(formatter=fmt_4_1)
         # logger.info(f'schedule:\n{schedule / SECONDS}')
         np.set_printoptions(formatter=fmt_6_1)
-        logger.info(f'Суммарный подневный график работы врачей по 6-ти модальностям (часы):\n{v_schedule / SECONDS}')
-        logger.info(f'Суммарный подневный план объёмов работ по 6-ти модальностям (часы):\n{v_plan / SECONDS}')
-        logger.info(f'Разница графика работы и плана по 6-ти модальностям (часы):\n{diff / SECONDS}')
-        np.set_printoptions(formatter=fmt_6_4)
-        logger.info(f'Относительное отклонение рассчитанного графика работы от начального плана:\n{diff_k}')
-        np.set_printoptions(formatter=fmt_6_1)
-        logger.info(f'Суммарный месячный график работ по 6-ти модальностям (часы):\n{v_schedule.sum(axis=1) / SECONDS}')
-        logger.info(
+        print(f'Суммарный подневный план объёмов работ по 6-ти модальностям (часы):\n{v_plan / SECONDS}')
+        print(f'Суммарный подневный график работы врачей по 6-ти модальностям (часы):\n{v_schedule / SECONDS}')
+        print(f'Абсолютная ошибка расхождения графика работ и плана по 6-ти модальностям (часы):\n{ae / SECONDS}')
+        print(
             f'Суммарный месячный план объёмов работ по 6-ти модальностям (часы):\n{v_plan.sum(axis=1) / SECONDS}')
-        logger.info(
-            f'Суммарная месячная разница графика работы и плана по 6-ти модальностям (часы):\n{diff.sum(axis=1) / SECONDS}')
-        logger.info(
-            f'Итоговое относительное отклонение рассчитанного графика работы от начального плана:\n{v_schedule.sum(axis=1) / v_plan.sum(axis=1)}')
-        logger.info(f'Общая разница рассчитанного графика и плана работ: {diff.sum() / SECONDS:.1f}')
-        logger.info(f'Относительная разница рассчитанного графика и плана работ: {v_schedule.sum() / v_plan.sum():.3f}')
+        # print(f'Средняя абсолютная ошибка расхождения графика работ и плана по 6-ти модальностям (часы):\n{mae / SECONDS}')
+        print(f'Среднеквадратичная ошибка отклонения рассчитанного графика работ от плановых объёмов'
+              f' по 6-ти модальностям (часы):\n{mse / SECONDS}')
+        np.set_printoptions(formatter=fmt_6_4)
+        print(f'Относительное отклонение рассчитанного графика работы от плановых объёмов по 6-ти модальностям:\n{re}')
+        # np.set_printoptions(formatter=fmt_6_1)
+        # logger.info(f'Суммарный месячный график работ по 6-ти модальностям (часы):\n{v_schedule.sum(axis=1) / SECONDS}')
+        # logger.info(
+        #     f'Суммарная месячная разница графика работы и плана по 6-ти модальностям (часы):\n{mae.sum(axis=1) / SECONDS}')
+        # logger.info(
+        #     f'Итоговое относительное отклонение рассчитанного графика работы от начального плана:\n{v_schedule.sum(axis=1) / v_plan.sum(axis=1)}')
+        # logger.info(f'Общая разница рассчитанного графика и плана работ: {mae.sum() / SECONDS:.1f}')
+        # logger.info(f'Относительная разница рассчитанного графика и плана работ: {v_schedule.sum() / v_plan.sum():.3f}')
 
-        plot(np.arange(self.n_generations + 1), counter, 'Значения штрафов')
+        plot(np.arange(self.n_generations + 1), counter, 'Оценки (штрафы) по поколениям')
         # пишем лучшего бота в базу
         if save:
             self.save_bot(best_bot)
@@ -1167,7 +1174,7 @@ if __name__ == '__main__':
     # main_month_start = datetime(2024, 1, 1)
     # установим дату начала расчёта графика работы
     os.environ['ROENTGEN.SCHEDULE_START_DATE'] = '2024-05-01'
-    def settings():  # точка перехода в IDE
+    def ide_point():  # точка перехода в IDE
         pass
 
     mode = 'main'  # main, test (запись и чтение в тестовой БД - будет ошибка, если нет данных)
@@ -1178,7 +1185,7 @@ if __name__ == '__main__':
         population_size = 4
         n_survived = 2
     else:
-        n_generations = 2  # 10
+        n_generations = 35  # 10
         population_size = 100  # 100
         n_survived = 60  # 50
 
@@ -1199,7 +1206,7 @@ if __name__ == '__main__':
     # main_scheduler._generate_doctors_mods()
     # main_scheduler.populate(n_bots=main_scheduler.population_size)
     # main_scheduler.correct_doctors_table()
-    main_scheduler.run(save=True)
+    main_scheduler.run(save=False)
 
     # schedule = dataloader.get_schedule('base', month_start, data_layer='day')
     # schedule = dataloader.get_schedule('base', month_start, data_layer='day_modality')
