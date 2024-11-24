@@ -1,7 +1,7 @@
 import os
 import sqlite3
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, time, timedelta
 
 from common.logger import Logger
 from settings import PROJECT_FOLDER
@@ -99,9 +99,9 @@ class DB:
     def delete(self, tablename, where_condition):
 
         q = (
-            f'DELETE FROM {tablename}\n'
-            f'WHERE\n'
-            f'{where_condition};'
+            f"DELETE FROM {tablename}\n"
+            f"WHERE\n"
+            f"{where_condition};"
         )
         with self.get_cursor() as curr:
             curr.execute(q)
@@ -110,6 +110,16 @@ class DB:
     def convert_str(self, df, columns: list):
         for col in columns:
             df[col] = df[col].apply(lambda x: "'" + str(x) + "'")
+            # df.loc[:, col] = df.loc[:, col].apply(lambda x: "'" + str(x) + "'")
+
+    def convert_list(self, df, columns: list):
+        for col in columns:
+            df[col] = df[col].apply(lambda x: "'{" + ','.join(x) + "}'")
+
+    def convert_bool(self, df, columns: list):
+        for col in columns:
+            df[col] = df[col].apply(lambda b: "'t'" if b else "'f'")
+
 
     def convert_datetime(self, df, columns: list):
         for col in columns:
@@ -120,10 +130,15 @@ class DB:
         def f(t):
             if pd.isna(t):
                 return "'00:00:00'"
-            ts = t.total_seconds()
-            hours, remainder = divmod(ts, 3600)
-            minutes, seconds = divmod(remainder, 60)
-            return f"'{int(hours):02d}:{int(minutes):02d}:{int(seconds):02d}'"
+            if isinstance(t, (time, datetime)):
+                return f"'{t:%H:%M:%S}'"
+            if isinstance(t, timedelta):
+                return f"'{datetime.min + t:%H:%M:%S}'"
+            raise TypeError (f'Неизвестный тип: {type(t)} - для значения: {t}')
+            # ts = t.total_seconds()
+            # hours, remainder = divmod(ts, 3600)
+            # minutes, seconds = divmod(remainder, 60)
+            # return f"'{int(hours):02d}:{int(minutes):02d}:{int(seconds):02d}'"
 
         for col in columns:
             df[col] = df[col].apply(f)
@@ -139,11 +154,15 @@ if __name__ == '__main__':
         cursor.execute("select 'dblite ready' as message;")
         result = get_all(cursor)
 
-    tablename = 'test_table'
-    unique = ['f1', 'f2']
-    df = pd.DataFrame({'f1': [10, 11, 12], 'f2': [100, 110, 120], 'f3': [200, 202, 209]})
-    db.upsert(df, tablename, unique)
+    # tablename = 'test_table'
+    # unique = ['f1', 'f2']
+    # df = pd.DataFrame({'f1': [10, 11, 12], 'f2': [100, 110, 120], 'f3': [200, 202, 209]})
+    # db.upsert(df, tablename, unique)
 
     db.close()
     print(result)
+
+    td = timedelta(seconds=100)
+    v = datetime.min + td
+    print(f"'{v:%H:%M:%S}'")
 

@@ -7,18 +7,21 @@ import random
 from datetime import time, datetime, timedelta
 
 from common.timeutils import time_to_interval, get_time_chunck
+from common.logger import Logger
+from common.showdata import expand_pandas_output
 from schedule.dataloader import DataLoader, get_month_layout, \
     DOCTOR_COLUMNS, DOCTOR_DAY_PLAN_COLUMNS, MODALITIES, MODALITIES_MAP, SCHEDULE_TYPES
-from settings import LOCAL_FOLDER, DB_VERSION
+from settings import LOCAL_FOLDER, DB_VERSION, XLS_FILEPATH
 if DB_VERSION == 'PG':
     from common.db import DB, get_all
 else:
     from common.dblite import DB as SQLite, get_all
 
+logger = Logger(__name__)
+
 DATALOADER = None
 DB_SCHEMA = None
 DB_SCHEMA_PLACEHOLDER = None
-XLS_FILEPATH = '/Users/ivan/Documents/CIFROPRO/Проекты/Нейронки/Расписание рентген-центра/dataset/'
 
 
 def get_db():
@@ -43,48 +46,13 @@ def get_uuid_from_columns(df_row, *args):
     return uuid.UUID(row_hash.hexdigest())
 
 
-def load_summary(tablename, filename, sheetname, version=None):
-    """"Загружает понедельный факт или план в разрезе модальностей из Excel"""
-
-    df_src = pd.read_excel(XLS_FILEPATH + filename, sheetname)
-    df = df_src.melt(
-        id_vars=['year', 'week'], value_vars=MODALITIES,
-        var_name='modality', value_name='amount'
-    )
-    df['contrast_enhancement'] = 'none'
-
-    def enhance(value_var):
-        extra_df = df_src.melt(
-            id_vars=['year', 'week'], value_vars=[value_var],
-            var_name='modality', value_name='amount'
-        )
-        extra_df[['modality', 'contrast_enhancement']] = extra_df['modality'].str.split('_', expand=True)
-        return extra_df
-
-    for ce in ['mrt_ce1', 'mrt_ce2', 'kt_ce1', 'kt_ce2']:
-        df = pd.concat([df, enhance(ce)])
-
-    df['amount'].fillna(0, inplace=True)
-    print(df.head())
-
-    if version:
-        df['version'] = version
-
-    # формируем уникальный uid из списка уникальности записи
-    unique = ['year', 'week', 'modality', 'contrast_enhancement']
-    df['uid'] = df.apply(get_uuid_from_columns, args=tuple(unique), axis=1)
-
-    db = get_db()
-    db.upsert(df, tablename, unique)
-    db.close()
-
-
 def load_doctor(tablename, filename, sheetname):
-    """Заполняет таблицу врачей"""
-    df_src = pd.read_excel(XLS_FILEPATH + filename, sheetname)
-    print(df_src.head())
+    """Загружает из Excel и заполняет таблицу врачей в БД."""
+    df_src = pd.read_excel(XLS_FILEPATH + filename, sheetname, header=1)
+    logger.info(f'Считано строк из Excel: {len(df_src)} [{filename}]')
+    logger.debug(f'Считано из Excel:\n{df_src.head()}')
 
-    def is_empty(value):
+    def is_empty(value) -> bool:
         return pd.isna(value) or value is None or str(value).strip() == ''
 
     unknown_modalities = []
@@ -98,6 +66,7 @@ def load_doctor(tablename, filename, sheetname):
         return True
 
     doctors = []
+    doctors_for_avail = []
     for i, row in df_src.iterrows():
         modality_ru: str = row['modality']
         if is_empty(modality_ru):
@@ -107,12 +76,6 @@ def load_doctor(tablename, filename, sheetname):
         if not check_modality(modality_ru):
             continue
         main_modality = MODALITIES_MAP[modality_ru]
-
-        # веса модальностей
-        # w_modalities = [0 for _ in range(len(MODALITIES))]
-        # modality_indices = {m: index for index, m in enumerate(MODALITIES)}
-
-        # set_modality(modalities, modality_ru, unknown_modalities, True)
 
         # распаковка дополнительных модальностей
         extra_modalities = row['extra_modalities']
@@ -128,7 +91,8 @@ def load_doctor(tablename, filename, sheetname):
                     modalities.append(modality)
 
         uid = uuid.uuid4()
-        schedule_type = random.choice(SCHEDULE_TYPES)
+        # schedule_type = random.choice(SCHEDULE_TYPES)
+        schedule_type = row['schedule']
         day_start_time = time(8, 0, 0)
         time_rate = row['time_rate']
         if schedule_type == '5/2':
@@ -146,15 +110,131 @@ def load_doctor(tablename, filename, sheetname):
 
         doctors.append([uid, row['name'], main_modality, modalities, schedule_type,
                         time_rate, is_active, day_start_time, day_end_time, rest_time])
+        doctors_for_avail.append([uid, day_start_time, timedelta(seconds=day_duration_sec)])
 
     df = pd.DataFrame(doctors, columns=DOCTOR_COLUMNS)
-    print(df.tail())
-    print(df.iloc[0])
-    unique = ['name']
     db = get_db()
+    if DB_VERSION == 'SQLite':
+        db.convert_str(df, ['uid', 'name', 'main_modality', 'schedule_type'])
+        db.convert_list(df, ['modalities'])
+        db.convert_time(df, ['day_start_time', 'day_end_time', 'rest_time'])
+        db.convert_bool(df, ['is_active'])
+    logger.debug(df.iloc[0])
+    logger.debug(f'Приготовлено для записи:\n{df.tail()}')
+    logger.debug(f'Отдельная запись:\n{df.iloc[0]}')
+
+    unique = ['name']
+    db.delete(tablename, "true")
     db.upsert(df, tablename, unique)
     db.close()
-    print('Сохранено записей:', len(df))
+    logger.info(f'Данные о врачах записаны в БД. Всего записей: {len(df)}')
+
+    # формируем датафрейм для таблицы доступности врачей
+    df_avail = pd.DataFrame(doctors_for_avail, columns=['doctor', 'day_start_time', 'time_volume'])
+    df_avail = pd.concat([df_avail, df_src.loc[:, 1:]], axis='columns')
+
+    return df_avail
+
+
+def load_doctor_availability(df_avail, tablename, month_start, version, msg='Сохранено записей'):
+    """"Загружает данные о доступности врачей в течение месяца из полученного датафрейма,
+     который, в свою очередь был считан из Excel."""
+
+    columns = ['uid', 'doctor', 'day_start', 'availability', 'time_volume']  # + version
+
+    # определяем количество дней в месяце
+    num_days = df_avail.columns.tolist()[-1]
+
+    time_table = []
+    for i, doctor in df_avail.iterrows():
+        doctor_uid = doctor['doctor']
+        work_time = doctor['time_volume']
+
+        for day_index in range(num_days):
+            day_start = datetime.combine(month_start + timedelta(days=day_index), doctor['day_start_time'])
+            # флаг доступности: -1 - недоступен для распределения, 1 - доступен
+            availability = 1 if doctor[day_index + 1] == 1 else -1
+            time_volume = work_time if availability == 1 else time(0)
+            uid = uuid.uuid4()
+            time_table.append([uid, doctor_uid, day_start, availability, time_volume])
+
+    df = pd.DataFrame(time_table, columns=columns)
+    df['version'] = version
+
+    db = get_db()
+    if DB_VERSION == 'SQLite':
+        db.convert_str(df, ['uid', 'version', 'doctor'])
+        db.convert_datetime(df, ['day_start'])
+        db.convert_time(df, ['time_volume'])
+
+    unique = ['version', 'doctor', 'day_start']
+    db.delete(tablename, f"version = '{version}' and datetime(day_start, 'start of month') = "
+                         f"'{month_start.strftime('%Y-%m-%d %H:%M:%S')}'")
+    db.upsert(df, tablename, unique)
+    db.close()
+    logger.info(f'Данные о доступности врачей записаны в БД. Всего записей: {len(df)}')
+
+
+def load_summary(tablename, filename, sheetname, version):
+    """"Загружает понедельный факт или план в разрезе модальностей из Excel"""
+
+    df_src = pd.read_excel(XLS_FILEPATH + filename, sheetname, header=1)
+    logger.info(f'Считано строк из Excel: {len(df_src)} [{filename}]')
+    df = df_src.melt(
+        id_vars=['year', 'week'], value_vars=MODALITIES,
+        var_name='modality', value_name='amount'
+    )
+    df['contrast_enhancement'] = 'none'
+
+    def enhance(value_var):
+        extra_df = df_src.melt(
+            id_vars=['year', 'week'], value_vars=[value_var],
+            var_name='modality', value_name='amount'
+        )
+        extra_df[['modality', 'contrast_enhancement']] = extra_df['modality'].str.split('_', expand=True)
+        return extra_df
+
+    for ce in ['mrt_ce1', 'mrt_ce2', 'kt_ce1', 'kt_ce2']:
+        df = pd.concat([df, enhance(ce)])
+
+    # df['amount'].fillna(0, inplace=True)
+    df.fillna({'amount': 0}, inplace=True)
+    df['version'] = version
+    # формируем уникальный uid из списка уникальности записи
+    unique = ['year', 'week', 'modality', 'contrast_enhancement', 'version']
+    df['uid'] = df.apply(get_uuid_from_columns, args=tuple(unique), axis=1)
+
+    logger.debug(df.head())
+
+    db = get_db()
+    if DB_VERSION == 'SQLite':
+        db.convert_str(df, ['uid', 'modality', 'contrast_enhancement', 'version'])
+
+    db.delete(tablename, f"version = '{version}'")
+    db.upsert(df, tablename, unique)
+    db.close()
+    logger.info(f'Данные о факте работ записаны в БД. Всего записей: {len(df)}')
+
+
+def load_time_norm(tablename, filename, sheetname):
+    """Загружает из Excel таблицу норм времени в БД."""
+    df_src = pd.read_excel(XLS_FILEPATH + filename, sheetname, header=2)
+    logger.info(f'Считано строк из Excel: {len(df_src)} [{filename}]')
+    logger.debug(f'Нормы времени считаны из Excel:\n{df_src.head()}')
+
+    columns = ['modality', 'contrast_enhancement', 'min_value', 'max_value']
+    df = df_src[columns].copy()
+
+    db = get_db()
+    if DB_VERSION == 'SQLite':
+        db.convert_str(df, ['modality', 'contrast_enhancement'])
+
+    logger.debug(f'Нормы времени подготовлены для записи:\n{df.head()}')
+    unique = ['modality', 'contrast_enhancement']
+    db.delete(tablename, "true")
+    db.upsert(df, tablename, unique)
+    db.close()
+    logger.info(f'Данные о нормах времени записаны в БД. Всего записей: {len(df)}')
 
 
 def generate_doctor_month_schedule(schedule_template, schedule_type, time_rate, working_days_matrix, weekend_start):
@@ -241,7 +321,8 @@ def generate_schedule(doctors, month_layout):
     return pd.DataFrame(time_table, columns=columns), doctor_data
 
 
-def load_doctor_availability(tablename, month_start, version, msg='Сохранено записей'):
+# deprecated
+def load_doctor_availability_gen(tablename, month_start, version, msg='Сохранено записей'):
     db = get_db()
 
     q = (f"SELECT id, {', '.join(DOCTOR_COLUMNS)}"
@@ -443,15 +524,39 @@ def data_transfer():
     sqlite.close()
 
 
-if __name__ == '__main__':
-    os.chdir('..')
+def load_data(start_of_month: datetime):
+    """Общий метод, который загружает из файлов:
+        - таблицу врачей с их параметрами и доступностью на месяц;
+        - таблицу факта работ понедельно в разрезе модальностей;
+        - таблицу норм времени на выполнение работ по различным модальностям.
+        """
+    files = ['doctor_table.xlsx', 'work_fact_by_week.xlsx', 'time_norm.xlsx']
+    not_found = []
+    for f in files:
+        if not os.path.exists(XLS_FILEPATH + f):
+            not_found.append(XLS_FILEPATH + f)
+    if len(not_found) > 0:
+        raise FileNotFoundError("Не найдены файлы для загрузки:\n" + '\n'.join(not_found))
 
-    mode = 'test'
+    # определяем имя листа из даты
+    doctor_sheetname = start_of_month.strftime('%Y-%m')
+    df_avail = load_doctor('doctor', files[0], doctor_sheetname)
+    load_doctor_availability(df_avail, 'doctor_availability', month_start=start_of_month, version='final')
+    load_summary('work_summary', files[1], 'Факт работ', version='train')
+    load_time_norm('time_norm', files[2], 'Нормы времени')
+
+
+if __name__ == '__main__':
+
+    logger.setup(level=logger.INFO, layout='debug')
+    expand_pandas_output()
+
+    mode = 'main'
     if DB_VERSION == 'PG':
         DB_SCHEMA = 'test' if mode == 'test' else 'roentgen'
 
     DATALOADER = DataLoader(DB_SCHEMA)
-    start_of_month = datetime(2024, 1, 1)
+    start_of_month = datetime(2024, 5, 1)
 
     if mode == 'test':
         # генерация таблицы доступности врачей
@@ -459,10 +564,12 @@ if __name__ == '__main__':
         # генерация записей по работе врача в течение дня
         # load_doctor_day_plan('doctor_day_plan', start_of_month, version='base')
         # генерация плана работ
-        generate_test_work_plan_summary()
+        # generate_test_work_plan_summary()
         # генерация норм времени
         # generate_test_time_norm()
+        pass
     else:
+        load_data(start_of_month)
         # загрузка факта работ из Excel
         # load_summary('work_summary', 'work_summary.xlsx', 'Chart data')
         # загрузка плана работ из Excel
