@@ -524,7 +524,7 @@ def data_transfer():
     sqlite.close()
 
 
-def load_data(start_of_month: datetime):
+def load_data():
     """Общий метод, который загружает из файлов:
         - таблицу врачей с их параметрами и доступностью на месяц;
         - таблицу факта работ понедельно в разрезе модальностей;
@@ -538,10 +538,13 @@ def load_data(start_of_month: datetime):
     if len(not_found) > 0:
         raise FileNotFoundError("Не найдены файлы для загрузки:\n" + '\n'.join(not_found))
 
+    assert 'ROENTGEN.SCHEDULE_START_DATE' in os.environ, 'В переменных среды не задана дата начала расчёта графика.'
+    month_start = datetime.fromisoformat(os.environ['ROENTGEN.SCHEDULE_START_DATE'])
+
     # определяем имя листа из даты
-    doctor_sheetname = start_of_month.strftime('%Y-%m')
+    doctor_sheetname = month_start.strftime('%Y-%m')
     df_avail = load_doctor('doctor', files[0], doctor_sheetname)
-    load_doctor_availability(df_avail, 'doctor_availability', month_start=start_of_month, version='final')
+    load_doctor_availability(df_avail, 'doctor_availability', month_start, version='final')
     load_summary('work_summary', files[1], 'Факт работ', version='train')
     load_time_norm('time_norm', files[2], 'Нормы времени')
 
@@ -555,8 +558,8 @@ if __name__ == '__main__':
     if DB_VERSION == 'PG':
         DB_SCHEMA = 'test' if mode == 'test' else 'roentgen'
 
-    DATALOADER = DataLoader(DB_SCHEMA)
-    start_of_month = datetime(2024, 5, 1)
+    dataloader = DataLoader(DB_SCHEMA)
+    os.environ['ROENTGEN.SCHEDULE_START_DATE'] = '2024-05-01'
 
     if mode == 'test':
         # генерация таблицы доступности врачей
@@ -569,7 +572,7 @@ if __name__ == '__main__':
         # generate_test_time_norm()
         pass
     else:
-        load_data(start_of_month)
+        load_data()
         # загрузка факта работ из Excel
         # load_summary('work_summary', 'work_summary.xlsx', 'Chart data')
         # загрузка плана работ из Excel
