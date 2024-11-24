@@ -10,7 +10,7 @@ try:
     # выполнение в колабе
     import google.colab
     RUN_ENV = 'COLAB'
-    PROJECT_FOLDER = '/content/roentgen/container/'
+    PROJECT_FOLDER = '/content/repo/container/'
     # папка для загрузки данных из Excel
     XLS_FILEPATH = '/content/dataset/'
     # BOTS_FOLDER = DRIVE_FOLDER + 'bots/'
