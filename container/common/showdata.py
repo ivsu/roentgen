@@ -121,13 +121,13 @@ def show_time_series_by_year(data_version):
     time_series_by_year(data)
 
 
-def show_doctors():
+def show_doctors(n=10):
     """Отображает датафрейм с врачами"""
     dataloader = DataLoader()
     doctor_df = dataloader.get_doctors()
     doctor_df.drop(['uid'], axis=1, inplace=True)
     expand_pandas_output()
-    print(doctor_df.head(10))
+    print(doctor_df.head(n))
 
 
 def show_legend():
