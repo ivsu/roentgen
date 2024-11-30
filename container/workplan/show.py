@@ -387,7 +387,7 @@ def dashboard(metrics, dataset, forecasts, learning_rates, bot, name):
     fig.show()
 
 
-def indicators(hp, params):
+def indicators(hp, params, title=''):
 
     n_in_row = 5
     n_indicators = len(params)

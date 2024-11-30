@@ -85,7 +85,7 @@ def search_hyperparameters(mode='genetic', end_shifts=None):
     # (!) plotly странно работает при первом вызове в колабе - выведем графические
     # индикаторы для первого вызова
     if True or os.environ['RUN_ENV'] == 'COLAB':
-        indicators(hp, PARAMS)
+        indicators(hp, PARAMS, title='Запуск подбора гиперпараметров')
 
     # создаём менеджер данных и готовим исходный DataFrame для формирования выборок
     datamanager = DataManager()
@@ -118,7 +118,7 @@ def learn_best_bots(n_bots, namespace, end_shifts=None, do_forecast=False):
     # (!) plotly странно работает при первом вызове в колабе - выведем графические
     # индикаторы для первого вызова
     if os.environ['RUN_ENV'] == 'COLAB':
-        indicators(hp, PARAMS)
+        indicators(hp, PARAMS, title='Запуск обучения')
 
     # создаём менеджер данных и готовим исходный DataFrame для формирования выборок
     datamanager = DataManager()
@@ -146,7 +146,7 @@ if __name__ == '__main__':
     # установим дату начала прогноза (датасет будет урезан до неё)
     os.environ['ROENTGEN.FORECAST_START_DATE'] = '2024-04-29'
 
-    learn_default(namespace='99', data_version='train', do_forecast=False)  # source, train, debug
+    learn_default(namespace='99', data_version='debug', do_forecast=False)  # source, train, debug
     # search_hyperparameters(
     #     # mode='test',
     #     mode='genetic', end_shifts=[-5, 0]

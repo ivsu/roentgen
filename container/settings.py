@@ -12,9 +12,9 @@ try:
     RUN_ENV = 'COLAB'
     PROJECT_FOLDER = '/content/repo/container/'
     # папка для загрузки данных из Excel
-    XLS_FILEPATH = '/content/dataset/'
+    XLS_FILEPATH = '/content/local/'
     # BOTS_FOLDER = DRIVE_FOLDER + 'bots/'
-    BOTS_FOLDER = '/content/bots/'
+    BOTS_FOLDER = '/content/local/'
     # if not os.path.exists('/content/drive/'):
     #     from google.colab import drive
 
