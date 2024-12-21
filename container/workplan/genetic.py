@@ -285,7 +285,7 @@ def calc_metrics(dataset, forecasts, bot):
     return mase_metrics, smape_metrics
 
 
-def save_forecast(forecast, forecast_start_date):
+def save_forecast(forecast, forecast_start_date, update_forecast):
     """
     Сохраняет данные прогноза в БД.
 
@@ -316,19 +316,24 @@ def save_forecast(forecast, forecast_start_date):
     df['created_at'] = f"'{now}'"
     df['updated_at'] = f"'{now}'"
 
+    print('Данные прогноза объёмов исследований на 5 недель по 6-ти модальностям:')
+    show_df = df.pivot(index=['year', 'week'], columns=['modality'], values=['amount'])
+    print(show_df)
+
     # expand_pandas_output()
     # print(df)
-    cond = df[['year', 'week']].drop_duplicates()
-    where = "version = 'forecast' and (\n\t" + " or\n\t".join(
-        [f'(year = {row["year"]} and week = {row["week"]})' for _, row in cond.iterrows()]
-    ) + "\n\t)"
-    unique = ['version', 'year', 'week', 'modality', 'contrast_enhancement']
-    db = DB()
-    # удаляем имеющиеся данные и вставляем новые
-    db.delete('work_plan_summary', where)
-    db.upsert(df, 'work_plan_summary', unique)
-    db.close()
-
+    if update_forecast:
+        cond = df[['year', 'week']].drop_duplicates()
+        where = "version = 'forecast' and (\n\t" + " or\n\t".join(
+            [f'(year = {row["year"]} and week = {row["week"]})' for _, row in cond.iterrows()]
+        ) + "\n\t)"
+        unique = ['version', 'year', 'week', 'modality', 'contrast_enhancement']
+        db = DB()
+        # удаляем имеющиеся данные и вставляем новые
+        db.delete('work_plan_summary', where)
+        db.upsert(df, 'work_plan_summary', unique)
+        db.close()
+        print('Данные прогноза сохранены.')
 
 
 class Bot:
@@ -435,7 +440,7 @@ class Bot:
 
     def save(self):
         """Сохраняет состояние бота на диск"""
-        fname = self.bots_folder + self.filename() + '.jd'
+        fname = self.bots_folder + self.filename() + '.json'
         state = self.get_state()
 
         def show_vals(dct):
@@ -707,7 +712,7 @@ class Researcher:
 
         return from_shift, evolve, n_search
 
-    def run(self, do_forecast=False):
+    def run(self, do_forecast=False, update_forecast=True):
 
         from_shift, evolve, n_search = self._setup()
         train_ds, test_ds = None, None
@@ -852,14 +857,14 @@ class Researcher:
             forecast = inference(model, test_dataloader, config, device)
             assert 'ROENTGEN.FORECAST_START_DATE' in os.environ, 'Дата начала прогноза не найдена в переменных среды.'
             forecast_start_date = os.environ['ROENTGEN.FORECAST_START_DATE']
-            save_forecast(forecast, datetime.fromisoformat(forecast_start_date))
-            print('Данные прогноза сохранены.')
+            save_forecast(forecast, datetime.fromisoformat(forecast_start_date), update_forecast)
 
         # очистим кэш сохраннённых выборок, т.к. при следующем запуске они могут быть другими
         if train_ds:
             train_files = train_ds.cleanup_cache_files()
             test_files = test_ds.cleanup_cache_files()
-            print(f'Кэш выборок очищен. Удалено файлов: {train_files} / {test_files}.')
+            # кэш пустой
+            # print(f'Кэш выборок очищен. Удалено файлов: {train_files} / {test_files}.')
 
     def generate(self, number, mode='random', start_index=0):
         """
@@ -1038,7 +1043,7 @@ class Researcher:
 
     def filepath(self):
         """Возвращает шаблон пути для считывания ботов с диска"""
-        return f'{self.bots_folder}bot_{self.hp.get("namespace")}_*.jd'
+        return f'{self.bots_folder}bot_{self.hp.get("namespace")}_*.j*'
 
     def print_bots_rating(self, num=10):
         print('Рейтинг лучших ботов:')

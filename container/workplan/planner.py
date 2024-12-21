@@ -115,7 +115,6 @@ def learn_best_bots(n_bots, namespace, end_shifts=None, do_forecast=False):
     hp.set('decay_epochs', 20)
     hp.set('end_shifts', end_shifts if end_shifts else [0])
 
-    # (!) plotly странно работает при первом вызове в колабе - выведем графические
     # индикаторы для первого вызова
     if os.environ['RUN_ENV'] == 'COLAB':
         indicators(hp, PARAMS, title='Запуск обучения')
@@ -133,7 +132,7 @@ def learn_best_bots(n_bots, namespace, end_shifts=None, do_forecast=False):
                             mode='best',
                             show_graphs=True,
                             train=True, save_bots=False)
-    researcher.run(do_forecast)
+    researcher.run(do_forecast, update_forecast=False)
 
 
 if __name__ == '__main__':
@@ -146,9 +145,9 @@ if __name__ == '__main__':
     # установим дату начала прогноза (датасет будет урезан до неё)
     os.environ['ROENTGEN.FORECAST_START_DATE'] = '2024-04-29'
 
-    learn_default(namespace='99', data_version='debug', do_forecast=False)  # source, train, debug
+    # learn_default(namespace='99', data_version='debug', do_forecast=False)  # source, train, debug
     # search_hyperparameters(
     #     # mode='test',
     #     mode='genetic', end_shifts=[-5, 0]
     # )
-    # learn_best_bots(n_bots=7, namespace='02')
+    learn_best_bots(n_bots=1, namespace='99', end_shifts=None, do_forecast=True)

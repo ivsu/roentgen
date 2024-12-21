@@ -414,7 +414,7 @@ def indicators(hp, params, title=''):
         )
 
     fig.update_layout(
-        title_text='Запуск подбора гиперпараметров',
+        title_text=title,
         # width=500,
         # autosize=False,
         height=180 * n_rows,  # это примерно (для точности нужно учесть высоту заголовка)

@@ -544,7 +544,7 @@ def load_data():
     # определяем имя листа из даты
     doctor_sheetname = month_start.strftime('%Y-%m')
     df_avail = load_doctor('doctor', files[0], doctor_sheetname)
-    load_doctor_availability(df_avail, 'doctor_availability', month_start, version='final')
+    load_doctor_availability(df_avail, 'doctor_availability', month_start, version='base')
     load_summary('work_summary', files[1], 'Факт работ', version='train')
     load_time_norm('time_norm', files[2], 'Нормы времени')
 
