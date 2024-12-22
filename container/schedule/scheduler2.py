@@ -890,7 +890,7 @@ class Scheduler:
         fmt_6_4 = dict(float=lambda x: f'{x:6.4f}')
         fmt_6_1 = dict(float=lambda x: f'{x:6.1f}')
 
-        print(f'\nЛучший бот: {best_bot_id} [{best_bot_source}], оценка: {best_bot_score:8.5f}')
+        print(f'\nЛучший бот: {best_bot_id} [{best_bot_source}], штраф: {best_bot_score:8.5f}')
 
         np.set_printoptions(linewidth=1000)
         if self.mode == 'test':
