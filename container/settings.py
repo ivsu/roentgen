@@ -14,7 +14,7 @@ try:
     # папка для загрузки данных из Excel
     XLS_FILEPATH = '/content/local/'
     # BOTS_FOLDER = DRIVE_FOLDER + 'bots/'
-    BOTS_FOLDER = '/content/local/'
+    BOTS_FOLDER = '/content/local/bots/'
     # if not os.path.exists('/content/drive/'):
     #     from google.colab import drive
 

@@ -104,7 +104,7 @@ def learn_best_bots(n_bots, namespace, end_shifts=None, do_forecast=False):
     hp = Hyperparameters()
     hp.set('namespace', namespace)
     # установим большее, чем при поиске количество эпох обучения, и возьмём 7 лучших ботов
-    hp.set('n_epochs', 7)
+    hp.set('n_epochs', 30)
     hp.set('n_survived', n_bots)
     hp.set('warmup_epochs', 5)
     hp.set('decay_epochs', 20)
