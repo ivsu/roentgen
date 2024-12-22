@@ -722,7 +722,7 @@ class Researcher:
             # создаём популяцию из лучших ботов
             self.population = self.get_best_bots()
             # установим новые параметры считанному боту
-            set_from_hp(self.population, ['n_epochs', 'warmup_epochs', 'decay_epochs', 'end_shifts'])
+            set_from_hp(self.population, ['n_epochs', 'warmup_epochs', 'decay_epochs', 'end_shifts', 'final_lr'])
 
             # меняем индексы ботов в популяции для корректного вывода
             for i, bot_id in enumerate(self.population):
