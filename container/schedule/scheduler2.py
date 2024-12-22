@@ -27,10 +27,10 @@ SECONDS = 3600.  # количество секунд в часах (устана
 
 SELECTION_METHOD = 'tournament'  # метод отбора популяции: best_bots, tournament
 MATE_RATE = 0.01  # пропорция генов, которыми обмениваются родители при скрещивании
-MUTATE_PROBABILITY = 0.3  # вероятносить применения мутации после скрещивания
-MUTATE_RATE = 0.1  # # доля мутирующих генов; TODO: возможно, ей стоит управлять
-MUTATE_CHANGE_MOD_PROBABILITY = 0.3  # TODO: сейчас это вероятность мутации по смене модальностей в поколении
-MUTATE_CHANGE_WORK_DAYS_RATE = 0.3  # доля ботов и врачей, у которых смещаются рабочие/выходные дни
+MUTATE_PROBABILITY = 0.7  # вероятносить применения мутации после скрещивания
+MUTATE_RATE = 0.1  # # доля мутирующих генов (не используется)
+MUTATE_CHANGE_MOD_PROBABILITY = 0.5  # вероятность мутации по смене модальностей в поколении
+MUTATE_CHANGE_WORK_DAYS_RATE = 0.2  # доля ботов и врачей, у которых смещаются рабочие/выходные дни
 
 TMP_FILE_PATH = '/Users/ivan/Documents/CIFROPRO/Проекты/Нейронки/Расписание рентген-центра/'
 
@@ -570,7 +570,7 @@ class Scheduler:
         # формируем случайные индексы для попарного скрещивания
         mate_indices = np.arange(n_bots)
         self.gen.shuffle(mate_indices)
-        logger.debug(f'mate_indices: {mate_indices}')
+        # logger.debug(f'mate_indices: {mate_indices}')
 
         # для каждой пары получаем индексы врачей с минималным штрафом
         doctor_penalty = np.concatenate([doctor_penalty[0::2, :], doctor_penalty[1::2, :]], axis=0)
@@ -655,24 +655,13 @@ class Scheduler:
     def mutate_v3(self, bots: np.ndarray, base: np.ndarray):
         """
         Выполняет мутацию одним из двух способов, исходя из сложившихся вероятностей:
-        MUTATE_CHANGE_MOD_PROBABILITY - меняются модальности в подложке
+        MUTATE_CHANGE_MOD_PROBABILITY - меняются модальности в подложке и на её основе создаётся новый бот
+        MUTATE_CHANGE_WORK_DAYS_RATE - доля врачей, у которых меняеются выходные/рабочие дни
+
         :param bots: боты
         :param base: текущая подложка ботов
         :return: новый вектор ботов и их подложка (новая, если была изменена)
         """
-        # TODO:
-        #   сначала меняем модальности в подложке (с небольшим коэффициентом замены в сторону недовыполнения плана)
-        #   затем по маске обновляем выходные/рабочие дни
-        #   либо, сделать эти изменения независимыми
-        #   >
-        #   MUTATE_RATE, MUTATE_CHANGE_MOD_RATE, MUTATE_PROBABILITY
-        #
-        # TODO: ? сделать мутацию по модальности у определённого количества ботов - MUTATE_CHANGE_MOD_RATE
-
-        # new_mods = self._generate_doctors_mods(bots.shape, gen_mod_weights=mod_weights)
-        # new_mod_base = self.get_base(n_bots=bots.shape[0], gen_mod_weights=mutate_mod_weights)
-        source = None
-
         # if True:
         if self.gen.random() < MUTATE_CHANGE_MOD_PROBABILITY:
             source = 'mutate_mod'
@@ -1339,7 +1328,7 @@ if __name__ == '__main__':
     # main_scheduler.run(save=False)
     calculate_schedule(
             plan_version='forecast',  # validation, forecast
-            n_generations=50,
+            n_generations=100,
             population_size=100,
             n_survived=48,
             correct_doctor_table=False

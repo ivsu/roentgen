@@ -51,11 +51,6 @@ def learn_default(namespace, data_version, do_forecast):
     values, _ = hp.generate(mode='default', hashes=[])
     print(hp.repr(values, mode='short'))
 
-    # (!) plotly странно работает при первом вызове в колабе - выведем графические
-    # индикаторы для первого вызова
-    # if True or os.environ['RUN_ENV'] == 'COLAB':
-    #     indicators(hp, PARAMS)
-
     # создаём менеджер данных и готовим исходный DataFrame для формирования выборок
     datamanager = DataManager()
     datamanager.read_and_prepare(

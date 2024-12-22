@@ -39,6 +39,26 @@ MASE_METRIC_PERIODICITY = 52
 CHANGE_LR_ON_EVERY_BATCH = True
 # количество временных рядов
 N_CHANNELS = None
+# словарь гиперпараметров модели
+MODEL_HP = dict(
+    embedding_dim='Размерность эмбеддингов',
+    encoder_layers='Слоёв энкодера',
+    decoder_layers='Слоёв декодера',
+    d_model='Размерность модели',
+    prediction_len='Глубина предикта',
+    freq='Частотность временного ряда',
+    train_batch_size='Размер батча',
+    num_batches_per_epoch='Батчей на эпоху',
+    context_ratio='Длина контекста к глубине предикта',
+    lags_sequence_index='Временные лаги',
+    time_features_index='Временные признаки',
+    n_epochs='Эпох обучения',
+    warmup_epochs='Эпох прогрева',
+    decay_epochs='Эпох затухания LR',
+    initial_lr='Начальный LR',
+    target_lr='Предельный LR',
+    final_lr='Целевой LR',
+)
 
 
 def train_model(model, config, dataloader, bot, stage_index, n_stages):
@@ -490,6 +510,17 @@ class Bot:
         """Возвращает имя файла для бота"""
         return f'bot_{self.namespace}_{self.id:05d}'
 
+    def print(self):
+        print('ГИПЕРПАРАМЕТРЫ МОДЕЛИ И ОБУЧЕНИЯ:')
+        shift = max([len(k) for k in MODEL_HP.values()])
+        for key, value in MODEL_HP.items():
+            if key == 'lags_sequence_index':
+                print(f'{value:>{shift}}: {self.get_lags_sequence()}')
+            elif key == 'time_features_index':
+                print(f'{value:>{shift}}: {[tf.__name__ for tf in self.get_time_features()]}')
+            else:
+                print(f'{value:>{shift}}: {self.values[key]}')
+
     def __str__(self, formats=None):
 
         if formats is None:
@@ -930,9 +961,13 @@ class Researcher:
         # количество отбираемых ботов равно количеству выживших
         best_bots = _rate_bots(self.bots, self.hp.get('n_survived'))
 
-        print('Лучшие боты:')
-        for bot in best_bots.values():
-            print(repr(bot))
+        if len(best_bots) == 1:
+            bot = list(best_bots.values())[0]
+            bot.print()
+        else:
+            print('Лучшие боты:')
+            for bot in best_bots.values():
+                print(repr(bot))
         return best_bots
 
     def populate(self):
@@ -1050,3 +1085,7 @@ class Researcher:
         best_bots = _rate_bots(self.bots, num)
         for bot in best_bots.values():
             print(repr(bot))
+
+
+if __name__ == '__main__':
+    pass
