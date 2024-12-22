@@ -295,8 +295,8 @@ class Scheduler:
             self.db_schema = 'test' if mode == 'test' else 'roentgen'
         self.gen = np.random.default_rng()
         self.dataloader = DataLoader(self.db_schema)
-        logger.info(f'Количество поколений:  {n_generations}, размер популяции: {population_size},'
-                    f' количество выживающих: {n_survived}')
+        print(f'Количество поколений:  {n_generations}, размер популяции: {population_size},'
+              f' количество выживающих: {n_survived}')
         ax = np.newaxis
 
         # получаем таблицу врачей
@@ -770,7 +770,6 @@ class Scheduler:
         # counter = {'mae': [], 'diff_minus': [], 'diff_plus': [], 'diff_weighted': []}
         counter = {'population_avg_penalty': [], 'population_min_penalty': [], 'best_bot_penalty': []}
 
-
         def print_stat(container: Container, title, first=None):
             g = container.generation
             bots, base, _, _ = container.best_bots()
@@ -783,13 +782,13 @@ class Scheduler:
             logger.debug(f'Поколение #{g}/{self.n_generations}, {title}:')
             logger.debug(f'Источники ботов в популяции: {dict(cnt)}')
             if logger.level == logger.DEBUG:
-                print(f'{"Бот":>12}{"Источник":>11}{"Оценка":>11}  {"Соотношение ресурсы/работы по модальностям"}')
+                print(f'{"Бот":>12}{"Источник":>11}{"Штраф":>11}  {"Соотношение ресурсы/план по модальностям"}')
                 print('\n'.join(f'id: {d["id"]} {d["source"]:>10}  {d["score"]:9.5f}'
                                 f'  {bots[i].sum(axis=(0, 2)) / self.v_plan.sum(axis=(0, 1, 3))}'
                                 for i, d in enumerate(data)))
             elif g % 10 == 0:
-                print(f'Поколение {f"#{g}":>4}/{self.n_generations}, оценка: {d["score"]:7.5f},'
-                      f' ресурсы/план по модальностям (лучшие):'
+                print(f'Поколение {f"#{g}":>4}/{self.n_generations}, штраф: {data[0]["score"]:7.5f},'
+                      f' ресурсы/план по модальностям (лучший):'
                       f' {bots[0].sum(axis=(0, 2)) / self.v_plan.sum(axis=(0, 1, 3))}')
 
         random_bots, random_base = self.populate(n_bots=self.population_size)
@@ -818,7 +817,7 @@ class Scheduler:
 
         total_plan = self.v_plan.sum() / SECONDS
         total_resource = np.mean(random_bots.sum(axis=(1, 2, 3))) / SECONDS
-        print(f'Первичное соотношение ресурсы/работы:'
+        print(f'Первичное соотношение ресурсы/план:'
               f' {total_resource / total_plan:.4f} ({total_resource:.0f} / {total_plan:.0f})')
 
         # debug
@@ -826,17 +825,14 @@ class Scheduler:
 
         for gn in range(self.n_generations):
             generation = gn + 1
-            # print(f'Поколение #{generation}')
             # получаем ботов из контейнера - там остались лучшие
             best_bots, best_base, best_bots_data, best_bots_scores = container.unpack()
-            # TODO: формируем вектор ресурсов по модальностям (для корректировки вероятностей в populate)
-            #   проверить
+            # формируем вектор ресурсов по модальностям (для корректировки вероятностей в populate)
             best_mod_weights = best_bots.sum(axis=(0, 1, 3), keepdims=True) / best_bots.sum()
 
             # формируем случайных ботов размером с целую популяцию и делим их на две части:
             # тех, которые пополнят текущую популяцию, и тех, которые будут использованы в качестве
             # случайных генов в процессе мутации
-            # with timer('populate'):
             n_random = self.population_size - self.n_survived * 3 // 2
             random_bots, random_base = self.populate(n_bots=n_random, swing_mod_weights=best_mod_weights)
             container = Container()
@@ -847,7 +843,6 @@ class Scheduler:
             # print(f'donors best_bots: {donors.shape}')
 
             # скрещиваем лучших ботов
-            # TODO: доработать
             source = 'mate'
             descendants, descendants_base = self.mate_v2(best_bots, best_base, best_bots_scores)
             # print(f'descendants after mate: {descendants.shape}')
@@ -864,7 +859,8 @@ class Scheduler:
             # рассчитываем оценку новых ботов
             scores = self.evaluate_v2(container, counter)
             container.set_scores(scores)
-            print_stat(container, 'Оценки новых ботов (лучшие)', first=5)
+            if logger.level == logger.DEBUG:
+                print_stat(container, 'Оценки новых ботов (лучшие)', first=5)
 
             # формируем общий контейнер всех ботов: сначала лучшие, затем полученные в данном цикле
             container.insert(best_bots, best_base, best_bots_data, best_bots_scores, index=0)
@@ -1292,7 +1288,7 @@ class Scheduler:
 
 if __name__ == '__main__':
 
-    logger.setup(level=logger.DEBUG, layout='debug')
+    logger.setup(level=logger.INFO, layout='debug')
     np.set_printoptions(edgeitems=30, linewidth=100000,
                         formatter=dict(float=lambda x: f'{x:.5f}'))
 
@@ -1328,7 +1324,7 @@ if __name__ == '__main__':
     # main_scheduler.run(save=False)
     calculate_schedule(
             plan_version='forecast',  # validation, forecast
-            n_generations=100,
+            n_generations=20,
             population_size=100,
             n_survived=48,
             correct_doctor_table=False

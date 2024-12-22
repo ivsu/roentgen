@@ -305,11 +305,13 @@ def calc_metrics(dataset, forecasts, bot):
     return mase_metrics, smape_metrics
 
 
-def save_forecast(forecast, forecast_start_date, update_forecast):
+def save_forecast(forecast, forecast_start_date: datetime, update_forecast):
     """
     Сохраняет данные прогноза в БД.
 
     :param forecast: данные прогноза (n_channels, n_batches, periods)
+    :param forecast_start_date: начальная дата в прогнозе
+    :param update_forecast: признак записи данных прогноза в БД
     """
     assert forecast.shape[0] == 6, "Метод реализован для сохранения только сгруппированных по модальностям данных."
     channels, _, _ = get_channels_settings()
@@ -336,7 +338,8 @@ def save_forecast(forecast, forecast_start_date, update_forecast):
     df['created_at'] = f"'{now}'"
     df['updated_at'] = f"'{now}'"
 
-    print('Данные прогноза объёмов исследований на 5 недель по 6-ти модальностям:')
+    print(f'Прогноз объёмов исследований по 6-ти модальностям на 5 недель, начиная с'
+          f' {forecast_start_date.strftime("%d.%m.%Y")}:')
     show_df = df.pivot(index=['year', 'week'], columns=['modality'], values=['amount'])
     print(show_df)
 
