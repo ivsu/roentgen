@@ -1324,7 +1324,7 @@ if __name__ == '__main__':
     # main_scheduler.run(save=False)
     calculate_schedule(
             plan_version='forecast',  # validation, forecast
-            n_generations=20,
+            n_generations=100,
             population_size=100,
             n_survived=48,
             correct_doctor_table=False

@@ -130,6 +130,41 @@ def learn_best_bots(n_bots, namespace, end_shifts=None, do_forecast=False):
     researcher.run(do_forecast, update_forecast=False)
 
 
+def train_model(n_bots, namespace, end_shifts=None, do_forecast=False):
+    """Функция обучения модели"""
+
+    # создаём инстанс гиперпараметров
+    hp = Hyperparameters()
+    hp.set('namespace', namespace)
+    # задаём параметры обучения
+    hp.set('n_epochs', 20)
+    hp.set('n_survived', n_bots)
+    hp.set('warmup_epochs', 5)
+    hp.set('decay_epochs', 20)
+    hp.set('final_lr', 1e-6)
+    hp.set('end_shifts', end_shifts if end_shifts else [0])
+    hp.set('n_search', 1)
+    hp.set('n_bots', 1)
+    hp.set('n_random', 0)
+
+    # создаём менеджер данных, считываем данные из БД SQLite -
+    # менеджер данных будет генерировать выборки
+    datamanager = DataManager()
+    datamanager.read_and_prepare(
+        freq=hp.get('freq'),
+        prediction_len=hp.get('prediction_len'),
+        data_version='train'
+    )
+
+    # создаём инстанс Researcher, который трансформирует данные на лету, подаёт
+    # их в сеть, обучает модель, делает с её помощью прогноз и сохраняет его в БД
+    researcher = Researcher(datamanager, hp,
+                            mode='best',
+                            show_graphs=True,
+                            train=True, save_bots=False)
+    researcher.run(do_forecast, update_forecast=True)
+
+
 if __name__ == '__main__':
 
     logger.setup(level=logger.INFO, layout='debug')
@@ -145,4 +180,7 @@ if __name__ == '__main__':
     #     # mode='test',
     #     mode='genetic', end_shifts=[-5, 0]
     # )
-    learn_best_bots(n_bots=1, namespace='99', end_shifts=None, do_forecast=True)
+    # learn_best_bots(n_bots=1, namespace='99', end_shifts=None, do_forecast=True)
+
+    train_model(n_bots=1, namespace='01', end_shifts=None, do_forecast=True)
+

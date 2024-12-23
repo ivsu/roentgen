@@ -22,7 +22,7 @@ except ModuleNotFoundError:
     RUN_ENV = 'IDE'
     PROJECT_FOLDER = '/Users/ivan/PycharmProjects/roentgen/container/'
     XLS_FILEPATH = '/Users/ivan/Documents/CIFROPRO/Проекты/Нейронки/' \
-                   'Расписание рентген-центра/dataset/Таблицы для загрузки/'
+                   'Расписание рентген-центра/dataset/Файлы для загрузки/'
     BOTS_FOLDER = LOCAL_FOLDER + 'bots/'
 
 # настройки для подключения к БД (только для PG)

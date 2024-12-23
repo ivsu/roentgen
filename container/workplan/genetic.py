@@ -566,6 +566,17 @@ def _rate_bots(bots: dict[Bot], n_bots: int = None):
     return {rate[0]: bots[rate[0]] for rate in rating}
 
 
+def print_bots(bots, title=None):
+    if len(bots) == 1:
+        bot = list(bots.values())[0]
+        bot.print()
+    else:
+        if title:
+            print(title)
+        for bot in bots.values():
+            print(repr(bot))
+
+
 class Researcher:
     """
     Класс исследователя, который создаёт и испытывает популяции ботов
@@ -723,6 +734,7 @@ class Researcher:
             self.population = self.get_best_bots()
             # установим новые параметры считанному боту
             set_from_hp(self.population, ['n_epochs', 'warmup_epochs', 'decay_epochs', 'end_shifts', 'final_lr'])
+            print_bots(self.population, title='Лучшие боты:')
 
             # меняем индексы ботов в популяции для корректного вывода
             for i, bot_id in enumerate(self.population):
@@ -763,6 +775,7 @@ class Researcher:
             if evolve or shift > from_shift:
                 # отбираем лучших и генерируем из них популяцию
                 self.best_bots = self.get_best_bots()
+                print_bots(self.best_bots, title='Лучшие боты:')
                 self.population = self.populate()
                 # предсохраняем популяцию на диск
                 # (после обучения каждый бот будет перезаписан вместе с метриками,
@@ -962,16 +975,7 @@ class Researcher:
     def get_best_bots(self) -> dict[Bot]:
         """Определяет и возвращает лучших ботов"""
         # количество отбираемых ботов равно количеству выживших
-        best_bots = _rate_bots(self.bots, self.hp.get('n_survived'))
-
-        if len(best_bots) == 1:
-            bot = list(best_bots.values())[0]
-            bot.print()
-        else:
-            print('Лучшие боты:')
-            for bot in best_bots.values():
-                print(repr(bot))
-        return best_bots
+        return _rate_bots(self.bots, self.hp.get('n_survived'))
 
     def populate(self):
         """Восполняет популяцию ботов из набора лучших.
@@ -1084,6 +1088,8 @@ class Researcher:
         return f'{self.bots_folder}bot_{self.hp.get("namespace")}_*.j*'
 
     def print_bots_rating(self, num=10):
+        if len(self.bots) == 1:
+            return
         print('Рейтинг лучших ботов:')
         best_bots = _rate_bots(self.bots, num)
         for bot in best_bots.values():
