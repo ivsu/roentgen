@@ -338,7 +338,7 @@ def save_forecast(forecast, forecast_start_date: datetime, update_forecast):
     df['created_at'] = f"'{now}'"
     df['updated_at'] = f"'{now}'"
 
-    print(f'Прогноз объёмов исследований по 6-ти модальностям на 5 недель, начиная с'
+    print(f'\nПрогноз объёмов исследований по 6-ти модальностям на 5 недель, начиная с'
           f' {forecast_start_date.strftime("%d.%m.%Y")}:')
     show_df = df.pivot(index=['year', 'week'], columns=['modality'], values=['amount'])
     print(show_df)

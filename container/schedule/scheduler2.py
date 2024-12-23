@@ -1097,6 +1097,11 @@ class Scheduler:
             # gen_mod_weights /= np.sqrt(swing_mod_weights / gen_mod_weights)
             # 0.03 / 0.01 = 3, 0.01 / 0.03 = 0.33,
 
+        # частотность модальности по всем врачам
+        # mod_freq = np.sum(self.v_mod > 0, axis=1, keepdims=True) / self.v_mod.shape[1]
+        # mod_freq = mod_freq / mod_freq.sum()
+        # gen_mod_weights = gen_mod_weights / (mod_freq / gen_mod_weights)
+
         # формируем начальный вектор весов модальностей по каждому врачу
         weights = gen_mod_weights.repeat(n_doctors, axis=1)
         # зануляем веса недоступных для врачей модальностей
@@ -1324,7 +1329,7 @@ if __name__ == '__main__':
     # main_scheduler.run(save=False)
     calculate_schedule(
             plan_version='forecast',  # validation, forecast
-            n_generations=100,
+            n_generations=400,
             population_size=100,
             n_survived=48,
             correct_doctor_table=False
